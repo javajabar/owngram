@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { Profile, Chat } from '@/types'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/useAuthStore'
-import { Plus, LogOut, User as UserIcon, Search, X, Settings } from 'lucide-react'
+import { Plus, LogOut, User as UserIcon, Search, X, Settings, Trash2, MoreVertical } from 'lucide-react'
 
 export function Sidebar() {
     const [chats, setChats] = useState<Chat[]>([])
@@ -14,13 +14,24 @@ export function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [showNewChat, setShowNewChat] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
+  const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
+  const [openChatMenuId, setOpenChatMenuId] = useState<string | null>(null)
   const router = useRouter()
   const { user, signOut } = useAuthStore()
 
+  // Close menu when clicking outside
   useEffect(() => {
-    if (!user) return
+    const handleClickOutside = () => {
+      setOpenChatMenuId(null)
+    }
+    if (openChatMenuId) {
+      document.addEventListener('click', handleClickOutside)
+      return () => document.removeEventListener('click', handleClickOutside)
+    }
+  }, [openChatMenuId])
 
-    const fetchChats = async () => {
+  const fetchChats = async () => {
+    if (!user) return
         // Fetch my profile
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
         if (profile) setMyProfile(profile as Profile)
@@ -93,6 +104,8 @@ export function Sidebar() {
         }
     }
 
+  useEffect(() => {
+    if (!user) return
     fetchChats()
 
     const channel = supabase.channel('sidebar_chats')
@@ -152,9 +165,35 @@ export function Sidebar() {
       if (!user) return
 
       try {
-        // Check if DM already exists (Optimized for MVP: just create new for now to avoid complex query on client)
-        // Ideally: call an RPC function 'get_or_create_dm(user_id)'
+        // First, check if DM chat already exists between these two users
+        // Get all DM chats where current user is a member
+        const { data: myChats } = await supabase
+            .from('chat_members')
+            .select('chat_id, chats!inner(type)')
+            .eq('user_id', user.id)
+            .eq('chats.type', 'dm')
         
+        if (myChats && myChats.length > 0) {
+            // Get chat IDs
+            const dmChatIds = myChats.map((m: any) => m.chat_id)
+            
+            // Check if any of these DM chats has the other user as a member
+            const { data: existingChats } = await supabase
+                .from('chat_members')
+                .select('chat_id')
+                .in('chat_id', dmChatIds)
+                .eq('user_id', otherUserId)
+            
+            if (existingChats && existingChats.length > 0) {
+                // Chat already exists, just navigate to it
+                router.push(`/chat/${existingChats[0].chat_id}`)
+                setShowNewChat(false)
+                setSearchQuery('')
+                return
+            }
+        }
+        
+        // No existing chat found, create a new one
         // 1. Create Chat
         const { data: chatData, error: chatError } = await supabase
             .from('chats')
@@ -181,10 +220,58 @@ export function Sidebar() {
         setSearchQuery('')
         
         // Refresh list
-        setChats(prev => [chatData, ...prev])
+        fetchChats()
       } catch (e) {
           console.error('Error creating chat:', e)
-          alert('Error creating chat')
+          alert('Ошибка при создании чата')
+      }
+  }
+
+  const deleteChat = async (chatId: string, deleteForAll: boolean) => {
+      if (!user) return
+      
+      try {
+          if (deleteForAll) {
+              // Delete chat completely (remove all members and messages)
+              // First, remove all members
+              const { error: membersError } = await supabase
+                  .from('chat_members')
+                  .delete()
+                  .eq('chat_id', chatId)
+              
+              if (membersError) throw membersError
+              
+              // Then delete the chat
+              const { error: chatError } = await supabase
+                  .from('chats')
+                  .delete()
+                  .eq('id', chatId)
+              
+              if (membersError) throw chatError
+          } else {
+              // Remove only current user from chat
+              const { error } = await supabase
+                  .from('chat_members')
+                  .delete()
+                  .eq('chat_id', chatId)
+                  .eq('user_id', user.id)
+              
+              if (error) throw error
+          }
+          
+          // Refresh chat list
+          fetchChats()
+          
+          // If we're currently in this chat, redirect to chat list
+          if (window.location.pathname.includes(chatId)) {
+              router.push('/chat')
+          }
+          
+          setDeletingChatId(null)
+      } catch (error) {
+          console.error('Error deleting chat:', error)
+          alert('Ошибка при удалении чата')
+          setDeletingChatId(null)
       }
   }
 
@@ -287,6 +374,7 @@ export function Sidebar() {
                         const avatarUrl = chat.type === 'dm' ? chat.otherUser?.avatar_url : null
                         const lastMsg = chat.lastMessage
                         const unreadCount = chat.unreadCount || 0
+                        const showChatMenu = openChatMenuId === chat.id
                         
                         // Format last message preview
                         let lastMsgPreview = 'No messages yet'
@@ -319,9 +407,12 @@ export function Sidebar() {
                         return (
                             <div 
                                 key={chat.id} 
-                                onClick={() => router.push(`/chat/${chat.id}`)} 
-                                className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer border-b border-gray-100 dark:border-gray-800 transition-colors flex items-center gap-3 relative"
+                                className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer border-b border-gray-100 dark:border-gray-800 transition-colors flex items-center gap-3 relative group"
                             >
+                                <div 
+                                    onClick={() => router.push(`/chat/${chat.id}`)} 
+                                    className="flex items-center gap-3 flex-1 min-w-0"
+                                >
                                 {/* Avatar */}
                                 <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gradient-to-br from-blue-400 to-indigo-500">
                                     {avatarUrl ? (
@@ -354,6 +445,68 @@ export function Sidebar() {
                                         )}
                                     </div>
                                 </div>
+                                
+                                {/* Chat Menu Button */}
+                                <button
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        setOpenChatMenuId(openChatMenuId === chat.id ? null : chat.id)
+                                    }}
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
+                                >
+                                    <MoreVertical className="w-4 h-4 text-gray-500" />
+                                </button>
+
+                                {/* Chat Menu */}
+                                {showChatMenu && (
+                                    <div className="absolute right-2 top-12 z-20 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 min-w-[180px]">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation()
+                                                setDeletingChatId(chat.id)
+                                                setShowChatMenu(false)
+                                            }}
+                                            className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                                        >
+                                            <Trash2 className="w-4 h-4" />
+                                            Удалить чат
+                                        </button>
+                                    </div>
+                                )}
+
+                                {/* Delete Confirmation Modal */}
+                                {deletingChatId === chat.id && (
+                                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                                        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6">
+                                            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
+                                                Удалить чат?
+                                            </h3>
+                                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                                                Выберите способ удаления:
+                                            </p>
+                                            <div className="space-y-2">
+                                                <button
+                                                    onClick={() => deleteChat(chat.id, false)}
+                                                    className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                                                >
+                                                    Удалить только для меня
+                                                </button>
+                                                <button
+                                                    onClick={() => deleteChat(chat.id, true)}
+                                                    className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                                                >
+                                                    Удалить для всех
+                                                </button>
+                                                <button
+                                                    onClick={() => setDeletingChatId(null)}
+                                                    className="w-full px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
+                                                >
+                                                    Отмена
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )
                     })}

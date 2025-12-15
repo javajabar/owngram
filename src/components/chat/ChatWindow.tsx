@@ -18,6 +18,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
   const [unreadCount, setUnreadCount] = useState(0)
   const [isTyping, setIsTyping] = useState(false)
+  const [replyingTo, setReplyingTo] = useState<Message | null>(null)
+  const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { user } = useAuthStore()
@@ -121,13 +123,26 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           }
       })
 
-    // Fetch Messages
+    // Fetch Messages with replies
     supabase.from('messages')
-      .select('*, sender:profiles(*)')
+      .select('*, sender:profiles(*), reply_to:messages!messages_reply_to_id_fkey(*, sender:profiles(*))')
       .eq('chat_id', chatId)
       .order('created_at', { ascending: true })
       .then(({ data }) => {
-        if (data) setMessages(data as Message[])
+        if (data) {
+          // Map messages and set reply_to, filter out messages deleted for all
+          const mappedMessages = data
+            .filter((msg: any) => {
+              // Don't show messages deleted for all
+              if (msg.deleted_at && msg.deleted_for_all) return false
+              return true
+            })
+            .map((msg: any) => ({
+              ...msg,
+              reply_to: msg.reply_to || null
+            })) as Message[]
+          setMessages(mappedMessages)
+        }
       })
 
     // Realtime
@@ -138,9 +153,21 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         table: 'messages', 
         filter: `chat_id=eq.${chatId}` 
       }, async (payload) => {
-          // Fetch sender info for the new message
+          // Skip deleted messages
+          if (payload.new.deleted_at) return
+          
+          // Fetch sender info and reply_to for the new message
           const { data: senderData } = await supabase.from('profiles').select('*').eq('id', payload.new.sender_id).single()
-          const newMsg = { ...payload.new, sender: senderData } as Message
+          let replyTo = null
+          if (payload.new.reply_to_id) {
+            const { data: replyData } = await supabase
+              .from('messages')
+              .select('*, sender:profiles(*)')
+              .eq('id', payload.new.reply_to_id)
+              .single()
+            replyTo = replyData as Message | null
+          }
+          const newMsg = { ...payload.new, sender: senderData, reply_to: replyTo } as Message
           setMessages(prev => {
               // Deduplicate
               if (prev.find(m => m.id === newMsg.id)) return prev
@@ -153,6 +180,22 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               
               return [...prev, newMsg]
           })
+      })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'messages',
+        filter: `chat_id=eq.${chatId}`
+      }, (payload) => {
+          // If message was deleted, remove it from the list
+          if (payload.new.deleted_at) {
+            setMessages(prev => prev.filter(msg => msg.id !== payload.new.id))
+          } else {
+            // Update message
+            setMessages(prev => prev.map(msg => 
+              msg.id === payload.new.id ? { ...msg, ...payload.new } : msg
+            ))
+          }
       })
       .on('postgres_changes', {
         event: 'UPDATE',
@@ -227,18 +270,93 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     if (!newMessage.trim() || !user) return
 
     const text = newMessage.trim()
+    
+    // If editing, update message instead of creating new
+    if (editingMessage) {
+      const { error } = await supabase
+        .from('messages')
+        .update({ 
+          content: text,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingMessage.id)
+        .eq('sender_id', user.id) // Only allow editing own messages
+      
+      if (error) {
+        console.error('Error updating message:', error)
+        alert('Ошибка при редактировании сообщения')
+      } else {
+        setEditingMessage(null)
+        setNewMessage('')
+        setReplyingTo(null)
+      }
+      return
+    }
+
+    // Create new message
     setNewMessage('') // Optimistic clear
+    setReplyingTo(null)
 
     const { error } = await supabase.from('messages').insert({
       chat_id: chatId,
       sender_id: user.id,
-      content: text
+      content: text,
+      reply_to_id: replyingTo?.id || null
     })
 
     if (error) {
         console.error('Error sending:', error)
         setNewMessage(text) // Restore on error
     }
+  }
+
+  const deleteMessage = async (messageId: string, deleteForAll: boolean) => {
+    if (!user) return
+    
+    try {
+      if (deleteForAll) {
+        // Delete for everyone
+        const { error } = await supabase
+          .from('messages')
+          .update({ 
+            deleted_at: new Date().toISOString(),
+            deleted_for_all: true,
+            content: 'Сообщение удалено'
+          })
+          .eq('id', messageId)
+          .eq('sender_id', user.id) // Only sender can delete for all
+        
+        if (error) throw error
+      } else {
+        // Delete only for current user (soft delete by marking as deleted)
+        // We'll need to track this differently - maybe add a deleted_by_user_ids array
+        // For now, we'll use a simple approach: mark as deleted for this user
+        // This requires a more complex schema, so for MVP we'll just delete for all
+        const { error } = await supabase
+          .from('messages')
+          .update({ 
+            deleted_at: new Date().toISOString(),
+            deleted_for_all: false
+          })
+          .eq('id', messageId)
+        
+        if (error) throw error
+      }
+    } catch (error) {
+      console.error('Error deleting message:', error)
+      alert('Ошибка при удалении сообщения')
+    }
+  }
+
+  const editMessage = (message: Message) => {
+    if (message.sender_id !== user?.id) return
+    setEditingMessage(message)
+    setNewMessage(message.content)
+    setReplyingTo(null)
+    // Scroll to input
+    setTimeout(() => {
+      document.querySelector('input[type="text"]')?.focus()
+    }, 100)
   }
 
   return (
@@ -301,11 +419,51 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 <div className="text-center text-gray-400 py-10">No messages yet. Say hi!</div>
             )}
             {messages.map((msg) => (
-                <MessageBubble key={msg.id} message={msg} />
+                <MessageBubble 
+                    key={msg.id} 
+                    message={msg} 
+                    onReply={(message) => {
+                        setReplyingTo(message)
+                        setEditingMessage(null)
+                        document.querySelector('input[type="text"]')?.focus()
+                    }}
+                    onEdit={(message) => editMessage(message)}
+                    onDelete={(messageId, deleteForAll) => deleteMessage(messageId, deleteForAll)}
+                />
             ))}
             <div ref={messagesEndRef} />
         </div>
       </div>
+
+      {/* Reply/Edit Preview */}
+      {(replyingTo || editingMessage) && (
+        <div className="px-4 py-2 bg-gray-100 dark:bg-gray-800 border-t border-gray-200 dark:border-gray-700 flex items-center justify-between">
+          <div className="flex-1 min-w-0">
+            {replyingTo && (
+              <div className="text-xs text-gray-500 dark:text-gray-400">
+                Ответ на: <span className="font-medium">{replyingTo.sender?.username || replyingTo.sender?.full_name || 'User'}</span>
+                <span className="ml-2 text-gray-400 truncate">{replyingTo.content.substring(0, 50)}...</span>
+              </div>
+            )}
+            {editingMessage && (
+              <div className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                Редактирование сообщения
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setReplyingTo(null)
+              setEditingMessage(null)
+              setNewMessage('')
+            }}
+            className="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Input */}
       <div className="p-3 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 shrink-0">
@@ -354,12 +512,12 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                         setIsTyping(false)
                     }
                 }}
-                placeholder="Message..."
+                placeholder={editingMessage ? "Редактировать сообщение..." : replyingTo ? "Ответить..." : "Message..."}
                 className="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-800 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white transition-all"
             />
             {newMessage.trim() ? (
                 <button type="submit" className="p-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-all active:scale-95 shadow-md">
-                    <Send className="w-5 h-5" />
+                    {editingMessage ? <span className="text-sm">✓</span> : <Send className="w-5 h-5" />}
                 </button>
             ) : (
                 <div className="relative flex items-center">

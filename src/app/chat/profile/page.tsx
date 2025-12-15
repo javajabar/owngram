@@ -19,6 +19,10 @@ export default function ProfilePage() {
   const [fullName, setFullName] = useState('')
   const [status, setStatus] = useState('')
   const [avatarUrl, setAvatarUrl] = useState('')
+  const [email, setEmail] = useState('')
+  const [newEmail, setNewEmail] = useState('')
+  const [isChangingEmail, setIsChangingEmail] = useState(false)
+  const [emailChangeLoading, setEmailChangeLoading] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -45,6 +49,10 @@ export default function ProfilePage() {
           setFullName(data.full_name || '')
           setStatus(data.status || '')
           setAvatarUrl(data.avatar_url || '')
+          // Get email from user object
+          if (user?.email) {
+            setEmail(user.email)
+          }
         }
       } catch (error) {
         console.error('Unexpected error:', error)
@@ -91,6 +99,45 @@ export default function ProfilePage() {
           alert('Неожиданная ошибка при сохранении профиля')
       } finally {
           setSaving(false)
+      }
+  }
+
+  const handleChangeEmail = async () => {
+      if (!user || !newEmail.trim()) {
+          alert('Введите новый email адрес')
+          return
+      }
+
+      if (newEmail === email) {
+          alert('Новый email должен отличаться от текущего')
+          return
+      }
+
+      setEmailChangeLoading(true)
+      try {
+          // Update email in Supabase Auth
+          const { error } = await supabase.auth.updateUser({
+              email: newEmail
+          })
+
+          if (error) {
+              throw error
+          }
+
+          alert('Письмо с подтверждением отправлено на новый email адрес. Проверьте почту и подтвердите изменение.')
+          setNewEmail('')
+          setIsChangingEmail(false)
+          
+          // Refresh user data to get updated email
+          const { data: { user: updatedUser } } = await supabase.auth.getUser()
+          if (updatedUser?.email) {
+              setEmail(updatedUser.email)
+          }
+      } catch (error: any) {
+          console.error('Error changing email:', error)
+          alert(`Ошибка при изменении email: ${error.message || 'Неизвестная ошибка'}`)
+      } finally {
+          setEmailChangeLoading(false)
       }
   }
 
@@ -197,6 +244,54 @@ export default function ProfilePage() {
                         className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 resize-none"
                         placeholder="About me..."
                     />
+                </div>
+
+                {/* Email Section */}
+                <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Email</label>
+                    {!isChangingEmail ? (
+                        <div className="flex items-center justify-between">
+                            <span className="text-gray-900 dark:text-white">{email || 'Не указан'}</span>
+                            <button
+                                onClick={() => setIsChangingEmail(true)}
+                                className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+                            >
+                                Изменить
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="space-y-2">
+                            <div className="text-xs text-gray-500 mb-1">Текущий: {email}</div>
+                            <input
+                                type="email"
+                                value={newEmail}
+                                onChange={(e) => setNewEmail(e.target.value)}
+                                placeholder="Новый email"
+                                className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                            />
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={handleChangeEmail}
+                                    disabled={emailChangeLoading || !newEmail.trim()}
+                                    className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    {emailChangeLoading ? 'Отправка...' : 'Сохранить'}
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setIsChangingEmail(false)
+                                        setNewEmail('')
+                                    }}
+                                    className="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-700 dark:text-gray-300 text-sm font-medium rounded-lg transition-all"
+                                >
+                                    Отмена
+                                </button>
+                            </div>
+                            <p className="text-xs text-gray-500">
+                                На новый email будет отправлено письмо с подтверждением
+                            </p>
+                        </div>
+                    )}
                 </div>
             </div>
 

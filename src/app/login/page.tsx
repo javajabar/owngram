@@ -34,16 +34,19 @@ export default function LoginPage() {
     }
     
     setVerifying(true)
+    setError(null)
+    
     try {
-      // Try to verify OTP code (for signup confirmation)
+      // Try to verify OTP code for signup confirmation
+      // Supabase sends 6-digit code in email when configured properly
       const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
         email,
         token: confirmationCode,
-        type: 'signup' // Use 'signup' type for registration confirmation
+        type: 'signup'
       })
       
       if (verifyError) {
-        // If signup OTP fails, try email type (for magic link)
+        // If signup type fails, try email type (some configurations use this)
         const { error: emailOtpError } = await supabase.auth.verifyOtp({
           email,
           token: confirmationCode,
@@ -51,32 +54,65 @@ export default function LoginPage() {
         })
         
         if (emailOtpError) {
-          // If both fail, try to sign in (user might have clicked link)
-          const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-          if (signInError) throw verifyError
+          throw emailOtpError
         }
       }
       
-      // Success - redirect to chat
-      window.location.href = '/chat'
+      // Success - wait a moment for session to be established
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      
+      // Check if session is established
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session) {
+        // Close modal and redirect
+        setShowConfirmationModal(false)
+        router.push('/chat')
+        router.refresh()
+      } else {
+        // If no session, try to sign in (user might need to sign in after confirmation)
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+        if (signInError) {
+          throw new Error('Код подтвержден, но не удалось войти. Попробуйте войти вручную.')
+        }
+        router.push('/chat')
+        router.refresh()
+      }
     } catch (err: any) {
       console.error('Verify code error:', err)
-      setError('Неверный код. Проверьте код из письма или перейдите по ссылке.')
+      let errorMessage = 'Неверный код. Проверьте код из письма.'
+      
+      if (err.message?.includes('expired') || err.message?.includes('invalid')) {
+        errorMessage = 'Код неверный или истек. Запросите новый код.'
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+      
+      setError(errorMessage)
       setVerifying(false)
     }
   }
 
   const handleResendCode = async () => {
     try {
-      const { error } = await supabase.auth.resend({
-        type: 'signup',
-        email
-      })
-      if (error) throw error
       setError(null)
       setConfirmationCode('')
-      alert('Письмо с подтверждением отправлено повторно на вашу почту!')
+      
+      // Resend OTP code for signup
+      const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://luxury-cat-55477b.netlify.app'
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+        options: {
+          emailRedirectTo: `${siteUrl}/chat`
+        }
+      })
+      
+      if (error) throw error
+      
+      // Show success message
+      alert('Письмо с кодом подтверждения отправлено повторно на вашу почту!')
     } catch (err: any) {
+      console.error('Resend error:', err)
       setError('Ошибка при отправке письма. Попробуйте позже.')
     }
   }
@@ -214,7 +250,8 @@ export default function LoginPage() {
         // Get current site URL for email confirmation redirect
         const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://luxury-cat-55477b.netlify.app'
         
-        // Step 1: Create user account
+        // Step 1: Create user account with OTP (6-digit code)
+        // Note: Supabase will send OTP code if email template is configured correctly
         const signupPromise = supabase.auth.signUp({
           email,
           password,

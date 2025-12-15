@@ -13,9 +13,14 @@ export interface Message {
   sender_id: string
   content: string
   created_at: string
+  updated_at?: string | null
   attachments: any[] | null
   sender?: Profile
   read_at?: string | null // Timestamp when message was read
+  reply_to_id?: string | null // ID of message this is replying to
+  reply_to?: Message | null // The message being replied to
+  deleted_at?: string | null // Timestamp when message was deleted
+  deleted_for_all?: boolean // Whether message was deleted for everyone
 }
 
 export interface Chat {

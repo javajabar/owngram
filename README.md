@@ -56,6 +56,10 @@ CREATE TABLE chat_members (
 -- Таблица сообщений
 CREATE TABLE messages (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  reply_to_id UUID REFERENCES messages(id) ON DELETE SET NULL,
+  updated_at TIMESTAMP WITH TIME ZONE,
+  deleted_at TIMESTAMP WITH TIME ZONE,
+  deleted_for_all BOOLEAN DEFAULT false,
   chat_id UUID REFERENCES chats(id) ON DELETE CASCADE,
   sender_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
   content TEXT NOT NULL,
@@ -63,6 +67,12 @@ CREATE TABLE messages (
   attachments JSONB DEFAULT '[]'::jsonb,
   read_at TIMESTAMP WITH TIME ZONE DEFAULT NULL
 );
+
+-- Если таблица messages уже существует, выполните эти команды для добавления новых полей:
+-- ALTER TABLE messages ADD COLUMN IF NOT EXISTS reply_to_id UUID REFERENCES messages(id) ON DELETE SET NULL;
+-- ALTER TABLE messages ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE;
+-- ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE;
+-- ALTER TABLE messages ADD COLUMN IF NOT EXISTS deleted_for_all BOOLEAN DEFAULT false;
 
 -- Включение RLS (Row Level Security)
 ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
@@ -92,6 +102,16 @@ CREATE POLICY "Users can view messages from chats they are in" ON messages FOR S
 );
 
 CREATE POLICY "Users can insert messages to chats they are in" ON messages FOR INSERT WITH CHECK (
+  chat_id IN (SELECT chat_id FROM chat_members WHERE user_id = auth.uid())
+);
+
+CREATE POLICY "Users can update own messages" ON messages FOR UPDATE USING (
+  sender_id = auth.uid() AND
+  chat_id IN (SELECT chat_id FROM chat_members WHERE user_id = auth.uid())
+);
+
+CREATE POLICY "Users can delete own messages" ON messages FOR UPDATE USING (
+  sender_id = auth.uid() AND
   chat_id IN (SELECT chat_id FROM chat_members WHERE user_id = auth.uid())
 );
 
