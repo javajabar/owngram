@@ -250,8 +250,10 @@ export default function LoginPage() {
         // Get current site URL for email confirmation redirect
         const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://luxury-cat-55477b.netlify.app'
         
-        // Step 1: Create user account with OTP (6-digit code)
-        // Note: Supabase will send OTP code if email template is configured correctly
+        // Step 1: Create user account
+        // Supabase sends confirmation email with link by default
+        // If email template is configured for 6-digit code, user can enter code
+        // Otherwise, user should click the link in email
         const signupPromise = supabase.auth.signUp({
           email,
           password,
@@ -481,7 +483,10 @@ export default function LoginPage() {
                 <strong className="text-gray-900 dark:text-white text-lg">{email}</strong>
               </p>
               <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">
-                Введите 6-значный код из письма или перейдите по ссылке
+                Проверьте почту и перейдите по ссылке подтверждения
+              </p>
+              <p className="text-xs text-gray-400 dark:text-gray-500 text-center mb-2">
+                Если в письме есть 6-значный код, введите его ниже
               </p>
             </div>
 
@@ -504,7 +509,10 @@ export default function LoginPage() {
                   autoFocus
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
-                  Код отправлен на вашу почту. Если не пришел, проверьте папку "Спам"
+                  Если письмо не пришло:
+                  <br />• Проверьте папку "Спам"
+                  <br />• Убедитесь, что email правильный
+                  <br />• Попробуйте перейти по ссылке из письма (это проще)
                 </p>
               </div>
 
@@ -523,7 +531,7 @@ export default function LoginPage() {
               </button>
               
               <p className="text-xs text-center text-gray-500 dark:text-gray-400 mt-2">
-                Или просто перейдите по ссылке из письма
+                💡 <strong>Рекомендуется:</strong> Просто перейдите по ссылке из письма - это быстрее и проще!
               </p>
 
               <button
