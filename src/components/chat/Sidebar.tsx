@@ -456,7 +456,7 @@ export function Sidebar() {
                                 </div>
                                 
                                 {/* Chat Context Menu */}
-                                {contextMenu?.chatId === chat.id && (
+                                {contextMenu?.chatId === chat.id && contextMenu && (
                                     <div 
                                         className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
                                         style={{ top: contextMenu.y, left: contextMenu.x }}
