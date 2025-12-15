@@ -113,7 +113,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     .neq('user_id', user.id)
                     .single()
                     .then(({ data: memberData }) => {
-                        if (memberData?.profiles) setOtherUser(memberData.profiles as Profile)
+                        if (memberData?.profiles) setOtherUser(memberData.profiles as unknown as Profile)
                     })
               }
           }
