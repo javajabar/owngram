@@ -263,9 +263,17 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 .update({ read_at: new Date().toISOString() })
                 .eq('chat_id', chatId)
                 .neq('sender_id', user.id)
+                .is('read_at', null)
             
             if (updateError && !updateError.message.includes('column') && !updateError.message.includes('does not exist')) {
                 console.error('Error marking messages as read:', updateError)
+            } else {
+                // If update succeeded, immediately set unread count to 0
+                setUnreadCount(0)
+                // Also trigger sidebar refresh
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('chatRead', { detail: { chatId } }))
+                }
             }
         } catch (e) {
             // Column might not exist, ignore
@@ -279,15 +287,11 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 .select('*', { count: 'exact', head: true })
                 .eq('chat_id', chatId)
                 .neq('sender_id', user.id)
+                .is('read_at', null)
             
             if (countError && countError.message.includes('read_at')) {
-                // If read_at doesn't exist, count all messages from others
-                const { count: allCount } = await supabase
-                    .from('messages')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('chat_id', chatId)
-                    .neq('sender_id', user.id)
-                setUnreadCount(allCount || 0)
+                // If read_at doesn't exist, just set to 0 since we're in the chat
+                setUnreadCount(0)
             } else {
                 setUnreadCount(count || 0)
             }
@@ -305,20 +309,17 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 .select('*', { count: 'exact', head: true })
                 .eq('chat_id', chatId)
                 .neq('sender_id', user.id)
+                .is('read_at', null)
             
             if (error && error.message.includes('read_at')) {
-                // If read_at doesn't exist, just count all
-                const { count: allCount } = await supabase
-                    .from('messages')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('chat_id', chatId)
-                    .neq('sender_id', user.id)
-                setUnreadCount(allCount || 0)
+                // If read_at doesn't exist, set to 0 since we're viewing the chat
+                setUnreadCount(0)
             } else {
                 setUnreadCount(count || 0)
             }
         } catch (e) {
-            // Ignore errors
+            // Ignore errors, set to 0
+            setUnreadCount(0)
         }
     }
     

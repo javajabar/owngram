@@ -164,6 +164,19 @@ export function Sidebar() {
       if (pathParts[1] === 'chat' && pathParts[2]) {
         currentChatId = pathParts[2]
       }
+      
+      // Listen for chat read events
+      const handleChatRead = (event: CustomEvent) => {
+        if (event.detail?.chatId) {
+          // Refresh chats when a chat is marked as read
+          fetchChats()
+        }
+      }
+      window.addEventListener('chatRead', handleChatRead as EventListener)
+      
+      return () => {
+        window.removeEventListener('chatRead', handleChatRead as EventListener)
+      }
     }
 
     const channel = supabase.channel('sidebar_chats')

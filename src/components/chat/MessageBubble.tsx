@@ -255,11 +255,10 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
         <div className={cn("text-[11px] mt-1 flex items-center justify-end gap-1", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
             <span className="opacity-70">{format(new Date(message.created_at), 'HH:mm')}</span>
             {isMe && (
-                <span className="flex items-center ml-1" title={message.read_at ? 'Прочитано' : 'Отправлено'}>
-                    {message.read_at ? (
-                        <CheckCheck className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
-                    ) : (
-                        <Check className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+                <span className="flex items-center ml-1 gap-0.5" title={message.read_at ? 'Прочитано' : 'Доставлено'}>
+                    <Check className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+                    {message.read_at && (
+                        <Check className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
                     )}
                 </span>
             )}
