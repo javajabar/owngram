@@ -12,9 +12,10 @@ interface MessageBubbleProps {
   onReply?: (message: Message) => void
   onEdit?: (message: Message) => void
   onDelete?: (messageId: string, deleteForAll: boolean) => void
+  showAvatar?: boolean
 }
 
-export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBubbleProps) {
+export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar = false }: MessageBubbleProps) {
   const { user } = useAuthStore()
   const isMe = user?.id === message.sender_id
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
@@ -110,7 +111,20 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
   }
 
   return (
-    <div className={cn("flex w-full mb-1 group", isMe ? "justify-end" : "justify-start")}>
+    <div className={cn("flex w-full mb-1 group items-end gap-2", isMe ? "justify-end" : "justify-start")}>
+      {/* Avatar for other user's messages */}
+      {!isMe && showAvatar && (
+        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 mb-1">
+          {message.sender?.avatar_url ? (
+            <img src={message.sender.avatar_url} className="w-full h-full object-cover" alt={message.sender.full_name || message.sender.username || 'User'} />
+          ) : (
+            <span className="text-gray-600 dark:text-gray-300 font-semibold text-sm">
+              {(message.sender?.full_name?.[0] || message.sender?.username?.[0] || '?').toUpperCase()}
+            </span>
+          )}
+        </div>
+      )}
+      
       <div 
         onContextMenu={handleContextMenu}
         className={cn(
@@ -134,9 +148,9 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
           </div>
         )}
 
-        {!isMe && message.sender && (
+        {!isMe && message.sender && showAvatar && (
             <div className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">
-                {message.sender.full_name || message.sender.username || 'User'}
+                {message.sender.full_name || message.sender.username?.replace(/^@/, '') || 'User'}
             </div>
         )}
 

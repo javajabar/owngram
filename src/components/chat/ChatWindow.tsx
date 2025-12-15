@@ -500,22 +500,31 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             {messages.length === 0 && (
                 <div className="text-center text-gray-400 py-10">No messages yet. Say hi!</div>
             )}
-            {messages.map((msg) => (
-                <MessageBubble 
-                    key={msg.id} 
-                    message={msg} 
-                    onReply={(message) => {
-                        setReplyingTo(message)
-                        setEditingMessage(null)
-                        setTimeout(() => {
-                            const input = document.querySelector('input[type="text"]') as HTMLInputElement
-                            input?.focus()
-                        }, 100)
-                    }}
-                    onEdit={(message) => editMessage(message)}
-                    onDelete={(messageId, deleteForAll) => deleteMessage(messageId, deleteForAll)}
-                />
-            ))}
+            {messages.map((msg, index) => {
+                // Determine if this message should show avatar (first in series)
+                const prevMessage = index > 0 ? messages[index - 1] : null
+                const isFirstInSeries = !prevMessage || 
+                    prevMessage.sender_id !== msg.sender_id ||
+                    (new Date(msg.created_at).getTime() - new Date(prevMessage.created_at).getTime()) > 5 * 60 * 1000 // 5 minutes gap
+                
+                return (
+                    <MessageBubble 
+                        key={msg.id} 
+                        message={msg} 
+                        showAvatar={isFirstInSeries}
+                        onReply={(message) => {
+                            setReplyingTo(message)
+                            setEditingMessage(null)
+                            setTimeout(() => {
+                                const input = document.querySelector('input[type="text"]') as HTMLInputElement
+                                input?.focus()
+                            }, 100)
+                        }}
+                        onEdit={(message) => editMessage(message)}
+                        onDelete={(messageId, deleteForAll) => deleteMessage(messageId, deleteForAll)}
+                    />
+                )
+            })}
             <div ref={messagesEndRef} />
         </div>
       </div>
