@@ -355,7 +355,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     setReplyingTo(null)
     // Scroll to input
     setTimeout(() => {
-      document.querySelector('input[type="text"]')?.focus()
+      const input = document.querySelector('input[type="text"]') as HTMLInputElement
+      input?.focus()
     }, 100)
   }
 
@@ -425,7 +426,10 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     onReply={(message) => {
                         setReplyingTo(message)
                         setEditingMessage(null)
-                        document.querySelector('input[type="text"]')?.focus()
+                        setTimeout(() => {
+                            const input = document.querySelector('input[type="text"]') as HTMLInputElement
+                            input?.focus()
+                        }, 100)
                     }}
                     onEdit={(message) => editMessage(message)}
                     onDelete={(messageId, deleteForAll) => deleteMessage(messageId, deleteForAll)}
