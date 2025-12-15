@@ -170,28 +170,29 @@ export function Sidebar() {
       if (!user) return
 
       try {
-        // First, check if DM chat already exists between these two users
-        // Get all DM chats where current user is a member
-        const { data: myChats } = await supabase
+        // 1. Check for existing DM with this user
+        // Get all chats where I am a member
+        const { data: myChatMembers } = await supabase
             .from('chat_members')
-            .select('chat_id, chats!inner(type)')
+            .select('chat_id')
             .eq('user_id', user.id)
-            .eq('chats.type', 'dm')
         
-        if (myChats && myChats.length > 0) {
-            // Get chat IDs
-            const dmChatIds = myChats.map((m: any) => m.chat_id)
+        if (myChatMembers && myChatMembers.length > 0) {
+            const myChatIds = myChatMembers.map(m => m.chat_id)
             
-            // Check if any of these DM chats has the other user as a member
-            const { data: existingChats } = await supabase
+            // Check if other user is in any of these chats AND the chat is a DM
+            const { data: commonChats } = await supabase
                 .from('chat_members')
-                .select('chat_id')
-                .in('chat_id', dmChatIds)
+                .select('chat_id, chats!inner(type)')
                 .eq('user_id', otherUserId)
+                .in('chat_id', myChatIds)
+                .eq('chats.type', 'dm')
+                .limit(1)
             
-            if (existingChats && existingChats.length > 0) {
-                // Chat already exists, just navigate to it
-                router.push(`/chat/${existingChats[0].chat_id}`)
+            if (commonChats && commonChats.length > 0) {
+                // Found existing DM
+                const existingChatId = commonChats[0].chat_id
+                router.push(`/chat/${existingChatId}`)
                 setShowNewChat(false)
                 setSearchQuery('')
                 return

@@ -119,8 +119,8 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
                 ? "opacity-50 italic"
                 : "",
             isMe 
-                ? "bg-blue-500 text-white rounded-2xl rounded-tr-sm" 
-                : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-2xl rounded-tl-sm"
+                ? "bg-[#EEFFDE] dark:bg-[#2b5278] text-black dark:text-white rounded-2xl rounded-tr-none" 
+                : "bg-white dark:bg-[#182533] text-black dark:text-white rounded-2xl rounded-tl-none"
         )}
       >
         {/* Reply Preview */}
@@ -252,14 +252,14 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
             </div>
         )}
         
-        <div className={cn("text-[10px] mt-1 flex items-center justify-end gap-1 opacity-70", isMe ? "text-blue-100" : "text-gray-400")}>
+        <div className={cn("text-[10px] mt-1 flex items-center justify-end gap-1 opacity-70", isMe ? "text-green-800 dark:text-green-300" : "text-gray-400")}>
             <span>{format(new Date(message.created_at), 'HH:mm')}</span>
             {isMe && (
                 <span className="flex items-center" title={message.read_at ? 'Прочитано' : 'Отправлено'}>
                     {message.read_at ? (
-                        <CheckCheck className="w-3 h-3 text-blue-300" />
+                        <CheckCheck className="w-3 h-3 text-green-500" />
                     ) : (
-                        <Check className="w-3 h-3" />
+                        <Check className="w-3 h-3 text-green-600" />
                     )}
                 </span>
             )}
