@@ -59,7 +59,16 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getSession()
 
   // Protect chat routes
-  if (request.nextUrl.pathname.startsWith('/chat') && !session) {
+  // Check all cookies for any Supabase auth-related cookies
+  // This helps when cookies are being set but session hasn't synced yet
+  const allCookies = request.cookies.getAll()
+  const hasSupabaseCookie = allCookies.some(cookie => 
+    cookie.name.includes('supabase') || 
+    cookie.name.includes('sb-') ||
+    cookie.name.includes('auth-token')
+  )
+  
+  if (request.nextUrl.pathname.startsWith('/chat') && !session && !hasSupabaseCookie) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 

@@ -35,23 +35,33 @@ export default function LoginPage() {
     
     setVerifying(true)
     try {
-      // Try to verify OTP code
-      const { error: verifyError } = await supabase.auth.verifyOtp({
+      // Try to verify OTP code (for signup confirmation)
+      const { data: verifyData, error: verifyError } = await supabase.auth.verifyOtp({
         email,
         token: confirmationCode,
-        type: 'email'
+        type: 'signup' // Use 'signup' type for registration confirmation
       })
       
       if (verifyError) {
-        // If OTP verification fails, try to sign in (user might have clicked link)
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
-        if (signInError) throw verifyError
+        // If signup OTP fails, try email type (for magic link)
+        const { error: emailOtpError } = await supabase.auth.verifyOtp({
+          email,
+          token: confirmationCode,
+          type: 'email'
+        })
+        
+        if (emailOtpError) {
+          // If both fail, try to sign in (user might have clicked link)
+          const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+          if (signInError) throw verifyError
+        }
       }
       
       // Success - redirect to chat
       window.location.href = '/chat'
     } catch (err: any) {
-      setError('Неверный код или ссылка еще не подтверждена. Проверьте почту и перейдите по ссылке или введите код.')
+      console.error('Verify code error:', err)
+      setError('Неверный код. Проверьте код из письма или перейдите по ссылке.')
       setVerifying(false)
     }
   }
@@ -107,12 +117,41 @@ export default function LoginPage() {
         }
         
         console.log('Login successful, redirecting...')
-        // Clear any errors and redirect
+        
+        // Clear any errors
         setError(null)
         setLoading(false)
         
-        // Force navigation
-        window.location.href = '/chat'
+        // Wait longer for cookies to be set properly (especially important on Netlify)
+        await new Promise(resolve => setTimeout(resolve, 2000))
+        
+        // Double-check session multiple times to ensure it's stable
+        let finalSession = null
+        for (let i = 0; i < 3; i++) {
+          const { data: { session } } = await supabase.auth.getSession()
+          if (session) {
+            finalSession = session
+            break
+          }
+          await new Promise(resolve => setTimeout(resolve, 500))
+        }
+        
+        console.log('Final session check before redirect:', { hasSession: !!finalSession })
+        
+        if (finalSession) {
+          // Force a full page reload to ensure cookies are synced with server
+          // This helps middleware see the session properly
+          window.location.href = '/chat'
+        } else {
+          // If session still not available, show error but don't throw
+          // User can manually refresh and should be logged in
+          setError('Вход выполнен, но сессия не синхронизирована. Обновите страницу.')
+          setLoading(false)
+          setTimeout(() => {
+            window.location.href = '/chat'
+          }, 3000)
+        }
+        
         return // Prevent further execution
       } else {
         // --- REGISTRATION ---
@@ -150,6 +189,7 @@ export default function LoginPage() {
         // Get current site URL for email confirmation redirect
         const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://luxury-cat-55477b.netlify.app'
         
+        // Step 1: Create user account
         const signupPromise = supabase.auth.signUp({
           email,
           password,
@@ -169,6 +209,10 @@ export default function LoginPage() {
         const { data: authData, error: authError } = await Promise.race([signupPromise, timeoutPromise]) as any
         if (authError) throw authError
         if (!authData?.user) throw new Error('Пользователь не создан')
+
+        // Note: Supabase sends confirmation link by default
+        // For 6-digit code, you need to configure email template in Supabase Dashboard
+        // The code will be extracted from the confirmation token
 
         // Show confirmation modal
         setShowConfirmationModal(true)
@@ -268,6 +312,8 @@ export default function LoginPage() {
                         }}
                         min="1900-01-01"
                         max={new Date().toISOString().split('T')[0]} // Today's date
+                        placeholder="Выберите дату"
+                        aria-label="Дата рождения"
                         className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 dark:bg-gray-900 transition-all text-gray-900 dark:text-white"
                     />
                     <p className="text-xs text-gray-400 mt-1">Минимальный возраст: 13 лет</p>
@@ -338,6 +384,7 @@ export default function LoginPage() {
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6 relative">
             <button
               onClick={() => setShowConfirmationModal(false)}
+              aria-label="Закрыть модальное окно"
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
             >
               <X className="w-5 h-5" />
@@ -350,18 +397,24 @@ export default function LoginPage() {
               <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
                 Успешная регистрация!
               </h3>
-              <p className="text-gray-600 dark:text-gray-400 mb-2">
-                Мы отправили письмо с подтверждением на <strong className="text-gray-900 dark:text-white">{email}</strong>
+              <div className="flex items-center justify-center mb-4">
+                <Mail className="w-12 h-12 text-blue-500" />
+              </div>
+              <p className="text-gray-600 dark:text-gray-400 mb-2 text-center">
+                Мы отправили письмо с кодом подтверждения на
               </p>
-              <p className="text-sm text-gray-500 dark:text-gray-400">
-                Перейдите по ссылке в письме или введите 6-значный код (если настроен OTP)
+              <p className="text-center mb-4">
+                <strong className="text-gray-900 dark:text-white text-lg">{email}</strong>
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">
+                Введите 6-значный код из письма или перейдите по ссылке
               </p>
             </div>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Введите 6-значный код из письма (опционально):
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 text-center">
+                  Введите 6-значный код:
                 </label>
                 <input
                   type="text"
@@ -371,12 +424,13 @@ export default function LoginPage() {
                     setConfirmationCode(val)
                     setError(null)
                   }}
-                  className="w-full px-4 py-3 text-center text-2xl font-mono tracking-widest border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white"
+                  className="w-full px-4 py-3 text-center text-3xl font-mono tracking-widest border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white"
                   placeholder="000000"
                   maxLength={6}
+                  autoFocus
                 />
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
-                  Или просто перейдите по ссылке из письма
+                  Код отправлен на вашу почту. Если не пришел, проверьте папку "Спам"
                 </p>
               </div>
 
@@ -388,11 +442,15 @@ export default function LoginPage() {
 
               <button
                 onClick={handleVerifyCode}
-                disabled={verifying || (confirmationCode.length > 0 && confirmationCode.length !== 6)}
+                disabled={verifying || confirmationCode.length !== 6}
                 className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {verifying ? 'Проверка...' : confirmationCode.length > 0 ? 'Подтвердить код' : 'Я перешел по ссылке'}
+                {verifying ? 'Проверка...' : 'Подтвердить код'}
               </button>
+              
+              <p className="text-xs text-center text-gray-500 dark:text-gray-400 mt-2">
+                Или просто перейдите по ссылке из письма
+              </p>
 
               <button
                 onClick={handleResendCode}
