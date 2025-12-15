@@ -437,7 +437,13 @@ export function Sidebar() {
                         let lastMsgPreview = 'No messages yet'
                         if (lastMsg) {
                             const isFromMe = lastMsg.sender_id === user?.id
-                            const senderName = isFromMe ? 'Вы' : (lastMsg.sender?.username || lastMsg.sender?.full_name || 'User')
+                            let senderName = 'User'
+                            if (isFromMe) {
+                                senderName = 'Вы'
+                            } else if (lastMsg.sender) {
+                                // Use full_name first, or username without @
+                                senderName = lastMsg.sender.full_name || (lastMsg.sender.username?.replace(/^@/, '') || 'User')
+                            }
                             const content = lastMsg.attachments?.length > 0 
                                 ? (lastMsg.attachments[0].type === 'voice' ? '🎤 Голосовое сообщение' : '📎 Вложение')
                                 : lastMsg.content

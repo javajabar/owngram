@@ -129,20 +129,30 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       .select('*, sender:profiles(*), reply_to:messages!messages_reply_to_id_fkey(*, sender:profiles(*))')
       .eq('chat_id', chatId)
       .order('created_at', { ascending: true })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) {
+          console.error('Error fetching messages:', error)
+          return
+        }
         if (data) {
           // Map messages and set reply_to, filter out messages deleted for all
           const mappedMessages = data
             .filter((msg: any) => {
               // Don't show messages deleted for all
               if (msg.deleted_at && msg.deleted_for_all) return false
+              // Don't show messages deleted for current user (they will be filtered in MessageBubble)
+              // But we keep them here so they can be shown as "deleted" if needed
               return true
             })
             .map((msg: any) => ({
               ...msg,
               reply_to: msg.reply_to || null
             })) as Message[]
+          console.log('Loaded messages:', mappedMessages.length, 'for chat:', chatId)
           setMessages(mappedMessages)
+        } else {
+          console.log('No messages data returned for chat:', chatId)
+          setMessages([])
         }
       })
 
