@@ -290,8 +290,10 @@ export default function LoginPage() {
       
       let errorMessage = 'Произошла ошибка. Проверьте подключение к интернету.'
       
-      if (err.message?.includes('Invalid login credentials') || err.message?.includes('Invalid credentials')) {
-        errorMessage = 'Неверный email или пароль. Проверьте данные и попробуйте снова.'
+      if (err.message?.includes('Invalid login credentials') || err.message?.includes('Invalid credentials') || err.status === 400) {
+        errorMessage = 'Неверный email или пароль. Проверьте:\n• Правильность email\n• Правильность пароля\n• Подтвержден ли email (проверьте почту)'
+      } else if (err.message?.includes('Email not confirmed') || err.message?.includes('email_not_confirmed')) {
+        errorMessage = 'Email не подтвержден. Проверьте почту и подтвердите регистрацию.'
       } else if (err.message?.includes('timeout') || err.message?.includes('Failed to fetch') || err.message?.includes('ERR_CONNECTION_CLOSED')) {
         errorMessage = 'Ошибка подключения. Проверьте интернет и попробуйте снова.'
       } else if (err.message?.includes('User already registered')) {
