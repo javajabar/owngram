@@ -20,6 +20,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [isTyping, setIsTyping] = useState(false)
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
+  const [showProfile, setShowProfile] = useState(false)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { user } = useAuthStore()
@@ -364,8 +365,11 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900">
       {/* Header */}
       <div className="h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center px-4 justify-between shrink-0 shadow-sm z-10">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-            <button onClick={() => router.push('/chat')} className="md:hidden p-2 -ml-2 text-gray-600 dark:text-gray-300 shrink-0">
+        <div 
+            onClick={() => setShowProfile(true)}
+            className="flex items-center gap-3 flex-1 min-w-0 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 p-2 -ml-2 rounded-lg transition-colors"
+        >
+            <button onClick={(e) => { e.stopPropagation(); router.push('/chat') }} className="md:hidden p-2 -ml-2 text-gray-600 dark:text-gray-300 shrink-0 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full">
                 <ArrowLeft className="w-6 h-6" />
             </button>
             {/* Avatar */}
@@ -466,6 +470,56 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           >
             <X className="w-4 h-4" />
           </button>
+        </div>
+      )}
+
+      {/* Profile Modal */}
+      {showProfile && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowProfile(false)}>
+            <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-xl w-full max-w-sm overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="h-24 bg-gradient-to-r from-blue-500 to-purple-600"></div>
+                <div className="px-6 pb-6">
+                    <div className="relative -mt-12 mb-4">
+                        <div className="w-24 h-24 rounded-full border-4 border-white dark:border-gray-900 overflow-hidden bg-gray-200 flex items-center justify-center">
+                            {otherUser?.avatar_url ? (
+                                <img src={otherUser.avatar_url} className="w-full h-full object-cover" alt={otherUser.username} />
+                            ) : (
+                                <span className="text-2xl font-bold text-gray-500">
+                                    {(chat?.type === 'dm' ? (otherUser?.username?.[0] || otherUser?.full_name?.[0]) : (chat?.name?.[0])) || '?'}
+                                </span>
+                            )}
+                        </div>
+                    </div>
+                    
+                    <div className="mb-6">
+                        <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                            {chat?.type === 'dm' 
+                                ? (otherUser?.full_name || otherUser?.username) 
+                                : chat?.name}
+                        </h2>
+                        {chat?.type === 'dm' && (
+                            <p className="text-blue-500 text-sm">@{otherUser?.username}</p>
+                        )}
+                    </div>
+                    
+                    {/* Info Fields */}
+                    <div className="space-y-4">
+                         <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
+                            <div className="text-xs text-gray-400 uppercase font-semibold mb-1">ID Пользователя</div>
+                            <div className="text-sm text-gray-700 dark:text-gray-300 font-mono text-xs">
+                                {otherUser?.id || chat?.id}
+                            </div>
+                         </div>
+                    </div>
+                    
+                    <button 
+                        onClick={() => setShowProfile(false)}
+                        className="w-full mt-6 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-gray-900 dark:text-white font-medium transition-colors"
+                    >
+                        Закрыть
+                    </button>
+                </div>
+            </div>
         </div>
       )}
 

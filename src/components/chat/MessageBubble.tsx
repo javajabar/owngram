@@ -17,7 +17,7 @@ interface MessageBubbleProps {
 export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBubbleProps) {
   const { user } = useAuthStore()
   const isMe = user?.id === message.sender_id
-  const [showMenu, setShowMenu] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   
@@ -79,22 +79,27 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
 
   // Close menu when clicking outside
   useEffect(() => {
-    if (!showMenu && !showDeleteConfirm) return
+    if (!contextMenu && !showDeleteConfirm) return
     
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
-        setShowMenu(false)
+        setContextMenu(null)
         setShowDeleteConfirm(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showMenu, showDeleteConfirm])
+  }, [contextMenu, showDeleteConfirm])
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY })
+  }
 
   const handleDelete = (deleteForAll: boolean) => {
     if (onDelete) {
       onDelete(message.id, deleteForAll)
-      setShowMenu(false)
+      setContextMenu(null)
       setShowDeleteConfirm(false)
     }
   }
@@ -105,16 +110,17 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
   }
 
   return (
-    <div className={cn("flex w-full mb-4 group", isMe ? "justify-end" : "justify-start")}>
+    <div className={cn("flex w-full mb-2 group", isMe ? "justify-end" : "justify-start")}>
       <div 
+        onContextMenu={handleContextMenu}
         className={cn(
-            "max-w-[70%] rounded-2xl px-4 py-2 shadow-sm relative",
+            "max-w-[70%] px-3 py-2 shadow-sm relative text-sm",
             message.deleted_at && message.deleted_for_all
-                ? "opacity-50"
+                ? "opacity-50 italic"
                 : "",
             isMe 
-                ? "bg-blue-600 text-white rounded-br-none" 
-                : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-bl-none border border-gray-100 dark:border-gray-700"
+                ? "bg-blue-500 text-white rounded-2xl rounded-tr-sm" 
+                : "bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-2xl rounded-tl-sm"
         )}
       >
         {/* Reply Preview */}
@@ -134,31 +140,18 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
             </div>
         )}
 
-        {/* Message Menu Button */}
-        <button
-          onClick={() => setShowMenu(!showMenu)}
-          className={cn(
-            "absolute top-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full hover:bg-black/10",
-            isMe ? "left-2" : "right-2"
-          )}
-        >
-          <MoreVertical className={cn("w-4 h-4", isMe ? "text-white" : "text-gray-400")} />
-        </button>
-
-        {/* Message Menu */}
-        {showMenu && !showDeleteConfirm && (
+        {/* Message Context Menu */}
+        {contextMenu && !showDeleteConfirm && (
           <div
             ref={menuRef}
-            className={cn(
-              "absolute z-10 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 min-w-[150px]",
-              isMe ? "right-0 top-8" : "left-0 top-8"
-            )}
+            className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
+            style={{ top: contextMenu.y, left: contextMenu.x }}
           >
             {onReply && (
               <button
                 onClick={() => {
                   onReply(message)
-                  setShowMenu(false)
+                  setContextMenu(null)
                 }}
                 className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
               >
@@ -170,7 +163,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
               <button
                 onClick={() => {
                   onEdit(message)
-                  setShowMenu(false)
+                  setContextMenu(null)
                 }}
                 className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
               >
@@ -194,12 +187,10 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
         {showDeleteConfirm && (
           <div
             ref={menuRef}
-            className={cn(
-              "absolute z-10 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 p-3 min-w-[200px]",
-              isMe ? "right-0 top-8" : "left-0 top-8"
-            )}
+            className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3 min-w-[200px]"
+            style={{ top: contextMenu?.y, left: contextMenu?.x }}
           >
-            <div className="text-sm font-medium mb-2">Удалить сообщение?</div>
+            <div className="text-sm font-medium mb-2 text-gray-900 dark:text-white">Удалить сообщение?</div>
             <div className="space-y-1">
               <button
                 onClick={() => handleDelete(false)}
@@ -216,7 +207,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
               <button
                 onClick={() => {
                   setShowDeleteConfirm(false)
-                  setShowMenu(false)
+                  setContextMenu(null)
                 }}
                 className="w-full px-3 py-1.5 text-left text-xs text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
               >

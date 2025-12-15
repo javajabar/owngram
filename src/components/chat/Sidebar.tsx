@@ -15,20 +15,21 @@ export function Sidebar() {
   const [showNewChat, setShowNewChat] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
-  const [openChatMenuId, setOpenChatMenuId] = useState<string | null>(null)
-  const router = useRouter()
-  const { user, signOut } = useAuthStore()
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chatId: string } | null>(null)
 
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = () => {
-      setOpenChatMenuId(null)
+      setContextMenu(null)
     }
-    if (openChatMenuId) {
-      document.addEventListener('click', handleClickOutside)
-      return () => document.removeEventListener('click', handleClickOutside)
-    }
-  }, [openChatMenuId])
+    document.addEventListener('click', handleClickOutside)
+    return () => document.removeEventListener('click', handleClickOutside)
+  }, [])
+
+  const handleContextMenu = (e: React.MouseEvent, chatId: string) => {
+    e.preventDefault()
+    setContextMenu({ x: e.clientX, y: e.clientY, chatId })
+  }
 
   const fetchChats = async () => {
     if (!user) return
@@ -110,6 +111,10 @@ export function Sidebar() {
 
     const channel = supabase.channel('sidebar_chats')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_members', filter: `user_id=eq.${user.id}` }, () => {
+            fetchChats()
+        })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+            // Refresh when any new message arrives (RLS filters visibility)
             fetchChats()
         })
         .subscribe()
@@ -374,7 +379,6 @@ export function Sidebar() {
                         const avatarUrl = chat.type === 'dm' ? chat.otherUser?.avatar_url : null
                         const lastMsg = chat.lastMessage
                         const unreadCount = chat.unreadCount || 0
-                        const showChatMenu = openChatMenuId === chat.id
                         
                         // Format last message preview
                         let lastMsgPreview = 'No messages yet'
@@ -407,6 +411,7 @@ export function Sidebar() {
                         return (
                             <div 
                                 key={chat.id} 
+                                onContextMenu={(e) => handleContextMenu(e, chat.id)}
                                 className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer border-b border-gray-100 dark:border-gray-800 transition-colors flex items-center gap-3 relative group"
                             >
                                 <div 
@@ -447,25 +452,17 @@ export function Sidebar() {
                                     </div>
                                 </div>
                                 
-                                {/* Chat Menu Button */}
-                                <button
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        setOpenChatMenuId(openChatMenuId === chat.id ? null : chat.id)
-                                    }}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 shrink-0"
-                                >
-                                    <MoreVertical className="w-4 h-4 text-gray-500" />
-                                </button>
-
-                                {/* Chat Menu */}
-                                {showChatMenu && (
-                                    <div className="absolute right-2 top-12 z-20 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-1 min-w-[180px]">
+                                {/* Chat Context Menu */}
+                                {contextMenu?.chatId === chat.id && (
+                                    <div 
+                                        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
+                                        style={{ top: contextMenu.y, left: contextMenu.x }}
+                                    >
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation()
                                                 setDeletingChatId(chat.id)
-                                                setOpenChatMenuId(null)
+                                                setContextMenu(null)
                                             }}
                                             className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
                                         >
