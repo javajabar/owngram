@@ -148,17 +148,6 @@ export default function LoginPage() {
         // Show confirmation modal
         setShowConfirmationModal(true)
         setLoading(false)
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Request timeout. Check your internet connection.')), 10000)
-        )
-        
-        const { data: authData, error: authError } = await Promise.race([signupPromise, timeoutPromise]) as any
-        if (authError) throw authError
-        if (!authData?.user) throw new Error('Пользователь не создан')
-
-        // Show confirmation modal instead of redirecting
-        setShowConfirmationModal(true)
-        setLoading(false)
       }
     } catch (err: any) {
       console.error('Auth error:', err)
