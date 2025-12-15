@@ -43,7 +43,7 @@ export default function LoginPage() {
         window.location.href = '/chat'
       } else {
         // --- REGISTRATION ---
-        if (!username || !birthDate || !fullName) throw new Error('Please fill all fields')
+        if (!username || !birthDate || !fullName) throw new Error('Заполните все поля')
         
         const signupPromise = supabase.auth.signUp({
           email,
@@ -64,7 +64,7 @@ export default function LoginPage() {
         if (authError) throw authError
         if (!authData?.user) throw new Error('Пользователь не создан')
 
-        alert('Registration successful! Logging you in...')
+        alert('Регистрация успешна! Выполняется вход...')
         window.location.href = '/chat'
       }
     } catch (err: any) {
@@ -73,8 +73,10 @@ export default function LoginPage() {
       
       if (err.message?.includes('Invalid login credentials') || err.message?.includes('Invalid credentials')) {
         errorMessage = 'Неверный email или пароль. Проверьте данные и попробуйте снова.'
-      } else if (err.message?.includes('timeout')) {
-        errorMessage = 'Превышено время ожидания. Проверьте подключение к интернету.'
+      } else if (err.message?.includes('timeout') || err.message?.includes('Failed to fetch') || err.message?.includes('ERR_CONNECTION_CLOSED')) {
+        errorMessage = 'Ошибка подключения. Проверьте интернет и попробуйте снова.'
+      } else if (err.message?.includes('User already registered')) {
+        errorMessage = 'Пользователь с таким email уже зарегистрирован. Войдите в аккаунт.'
       } else if (err.message) {
         errorMessage = err.message
       }
@@ -101,13 +103,13 @@ export default function LoginPage() {
                     "absolute w-full text-2xl font-bold text-center text-gray-800 dark:text-white transition-all duration-500 transform",
                     isLogin ? "translate-y-0 opacity-100" : "-translate-y-10 opacity-0"
                 )}>
-                    Welcome Back
+                    С возвращением
                 </h2>
                 <h2 className={cn(
                     "absolute w-full text-2xl font-bold text-center text-gray-800 dark:text-white transition-all duration-500 transform",
                     !isLogin ? "translate-y-0 opacity-100" : "translate-y-10 opacity-0"
                 )}>
-                    Create Account
+                    Создать аккаунт
                 </h2>
             </div>
 
@@ -118,7 +120,7 @@ export default function LoginPage() {
                   !isLogin ? "max-h-64 opacity-100" : "max-h-0 opacity-0"
               )}>
                  <div>
-                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Username</label>
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Имя пользователя</label>
                     <div className="relative">
                         <span className="absolute left-3 top-2 text-gray-400">@</span>
                         <input
@@ -126,22 +128,22 @@ export default function LoginPage() {
                             value={username}
                             onChange={handleUsernameChange}
                             className="w-full pl-7 pr-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 dark:bg-gray-900 transition-all text-gray-900 dark:text-white"
-                            placeholder="username"
+                            placeholder="имя_пользователя"
                         />
                     </div>
                  </div>
                  <div>
-                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Full Name</label>
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Полное имя</label>
                     <input
                         type="text"
                         value={fullName}
                         onChange={(e) => setFullName(e.target.value)}
                         className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 dark:bg-gray-900 transition-all text-gray-900 dark:text-white"
-                        placeholder="John Doe"
+                        placeholder="Иван Иванов"
                     />
                  </div>
                  <div>
-                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Birth Date</label>
+                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Дата рождения</label>
                     <input
                         type="date"
                         value={birthDate}
@@ -153,19 +155,19 @@ export default function LoginPage() {
 
               {/* Main fields */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Email</label>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Электронная почта</label>
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 dark:bg-gray-900 transition-all text-gray-900 dark:text-white"
-                  placeholder="hello@example.com"
+                  placeholder="example@mail.ru"
                 />
               </div>
               
               <div>
-                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Password</label>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Пароль</label>
                 <input
                   type="password"
                   required
@@ -188,7 +190,7 @@ export default function LoginPage() {
                 disabled={loading}
                 className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-blue-500/30 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? 'Processing...' : (isLogin ? 'Sign In' : 'Sign Up')}
+                {loading ? 'Обработка...' : (isLogin ? 'Войти' : 'Зарегистрироваться')}
               </button>
             </form>
 
@@ -199,9 +201,9 @@ export default function LoginPage() {
                 className="text-sm text-gray-500 hover:text-blue-600 dark:text-gray-400 dark:hover:text-blue-400 transition-colors"
               >
                 {isLogin ? (
-                    <span>New here? <span className="font-bold underline">Create an account</span></span>
+                    <span>Новичок здесь? <span className="font-bold underline">Создать аккаунт</span></span>
                 ) : (
-                    <span>Already have an account? <span className="font-bold underline">Sign in</span></span>
+                    <span>Уже есть аккаунт? <span className="font-bold underline">Войти</span></span>
                 )}
               </button>
             </div>
