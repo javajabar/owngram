@@ -93,6 +93,35 @@ export default function LoginPage() {
         // --- REGISTRATION ---
         if (!username || !birthDate || !fullName) throw new Error('Заполните все поля')
         
+        // Validate birth date
+        const birth = new Date(birthDate)
+        const today = new Date()
+        const minDate = new Date('1900-01-01')
+        const maxAge = 150 // Maximum reasonable age
+        const minAge = 13 // Minimum age to register
+        
+        if (isNaN(birth.getTime())) {
+          throw new Error('Некорректная дата рождения')
+        }
+        
+        if (birth > today) {
+          throw new Error('Дата рождения не может быть в будущем')
+        }
+        
+        if (birth < minDate) {
+          throw new Error('Дата рождения не может быть раньше 1900 года')
+        }
+        
+        const age = Math.floor((today.getTime() - birth.getTime()) / (365.25 * 24 * 60 * 60 * 1000))
+        
+        if (age < minAge) {
+          throw new Error(`Вам должно быть минимум ${minAge} лет для регистрации`)
+        }
+        
+        if (age > maxAge) {
+          throw new Error('Проверьте правильность даты рождения')
+        }
+        
         // Get current site URL for email confirmation redirect
         const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://luxury-cat-55477b.netlify.app'
         
@@ -211,9 +240,15 @@ export default function LoginPage() {
                     <input
                         type="date"
                         value={birthDate}
-                        onChange={(e) => setBirthDate(e.target.value)}
+                        onChange={(e) => {
+                          setBirthDate(e.target.value)
+                          setError(null) // Clear error when user changes date
+                        }}
+                        min="1900-01-01"
+                        max={new Date().toISOString().split('T')[0]} // Today's date
                         className="w-full px-4 py-2 border border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 dark:bg-gray-900 transition-all text-gray-900 dark:text-white"
                     />
+                    <p className="text-xs text-gray-400 mt-1">Минимальный возраст: 13 лет</p>
                  </div>
               </div>
 
