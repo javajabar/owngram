@@ -25,16 +25,71 @@ export function Sidebar() {
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
         if (profile) setMyProfile(profile as Profile)
 
-        // Fetch my chats
-        // Ideally: Fetch chats and their members to show names
+        // Fetch my chats with last message and other user info
         const { data: memberData } = await supabase
             .from('chat_members')
-            .select('chat_id, chats(*)')
+            .select(`
+                chat_id, 
+                chats(*),
+                profiles!chat_members_user_id_fkey(*)
+            `)
             .eq('user_id', user.id)
         
         if (memberData) {
-            const myChats = memberData.map((m: any) => m.chats).filter(Boolean)
-            setChats(myChats)
+            // For each chat, fetch last message and other user (for DM)
+            const chatsWithDetails = await Promise.all(
+                memberData.map(async (m: any) => {
+                    const chat = m.chats
+                    if (!chat) return null
+                    
+                    // Get last message
+                    const { data: lastMessageData } = await supabase
+                        .from('messages')
+                        .select('*, sender:profiles(*)')
+                        .eq('chat_id', chat.id)
+                        .order('created_at', { ascending: false })
+                        .limit(1)
+                    const lastMessage = lastMessageData && lastMessageData.length > 0 ? lastMessageData[0] : null
+                    
+                    // For DM, get other user
+                    let otherUser = null
+                    if (chat.type === 'dm') {
+                        const { data: otherMember } = await supabase
+                            .from('chat_members')
+                            .select('profiles(*)')
+                            .eq('chat_id', chat.id)
+                            .neq('user_id', user.id)
+                            .single()
+                        if (otherMember?.profiles) {
+                            otherUser = otherMember.profiles
+                        }
+                    }
+                    
+                    // Count unread messages
+                    const { count: unreadCount } = await supabase
+                        .from('messages')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('chat_id', chat.id)
+                        .neq('sender_id', user.id)
+                        .is('read_at', null)
+                    
+                    return {
+                        ...chat,
+                        lastMessage: lastMessage || null,
+                        otherUser: otherUser || null,
+                        unreadCount: unreadCount || 0
+                    }
+                })
+            )
+            
+            const validChats = chatsWithDetails.filter(Boolean) as any[]
+            // Sort by last message time
+            validChats.sort((a, b) => {
+                const timeA = a.lastMessage?.created_at || a.created_at
+                const timeB = b.lastMessage?.created_at || b.created_at
+                return new Date(timeB).getTime() - new Date(timeA).getTime()
+            })
+            setChats(validChats)
         }
     }
 
@@ -59,21 +114,31 @@ export function Sidebar() {
 
       const searchUsers = async () => {
           if (!user) return
+          
+          // Only search if user has typed something starting with @
+          const trimmedQuery = searchQuery.trim()
+          if (!trimmedQuery || !trimmedQuery.startsWith('@')) {
+              setUsers([])
+              setIsSearching(false)
+              return
+          }
+          
           setIsSearching(true)
           
-          let query = supabase.from('profiles').select('*').neq('id', user.id)
-
-          if (searchQuery.trim()) {
-              // Search by username or full_name (ilike = case insensitive)
-              // We remove @ if user typed it for username search
-              const cleanQuery = searchQuery.trim().replace('@', '')
-              query = query.or(`username.ilike.%${cleanQuery}%,full_name.ilike.%${cleanQuery}%`)
-          } else {
-              // By default show recent 10 users to not show empty
-              query = query.limit(10).order('updated_at', { ascending: false })
+          // Remove @ and search by username
+          const cleanQuery = trimmedQuery.replace('@', '').trim()
+          if (!cleanQuery) {
+              setUsers([])
+              setIsSearching(false)
+              return
           }
-
-          const { data } = await query
+          
+          const { data } = await supabase
+              .from('profiles')
+              .select('*')
+              .neq('id', user.id)
+              .ilike('username', `%${cleanQuery}%`)
+          
           if (data) setUsers(data as Profile[])
           setIsSearching(false)
       }
@@ -215,21 +280,83 @@ export function Sidebar() {
                 </div>
             ) : (
                 <div className="flex flex-col">
-                    {chats.map(chat => (
-                        <div 
-                            key={chat.id} 
-                            onClick={() => router.push(`/chat/${chat.id}`)} 
-                            className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer border-b border-gray-100 dark:border-gray-800 transition-colors flex items-center gap-3"
-                        >
-                            <div className="w-12 h-12 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center shrink-0">
-                                <UserIcon className="w-6 h-6 text-gray-400" />
+                    {chats.map((chat: any) => {
+                        const displayName = chat.type === 'dm' 
+                            ? (chat.otherUser?.username || chat.otherUser?.full_name || 'User')
+                            : (chat.name || 'Chat')
+                        const avatarUrl = chat.type === 'dm' ? chat.otherUser?.avatar_url : null
+                        const lastMsg = chat.lastMessage
+                        const unreadCount = chat.unreadCount || 0
+                        
+                        // Format last message preview
+                        let lastMsgPreview = 'No messages yet'
+                        if (lastMsg) {
+                            const isFromMe = lastMsg.sender_id === user?.id
+                            const senderName = isFromMe ? 'Вы' : (lastMsg.sender?.username || lastMsg.sender?.full_name || 'User')
+                            const content = lastMsg.attachments?.length > 0 
+                                ? (lastMsg.attachments[0].type === 'voice' ? '🎤 Голосовое сообщение' : '📎 Вложение')
+                                : lastMsg.content
+                            lastMsgPreview = `${senderName}: ${content}`
+                        }
+                        
+                        // Format time
+                        let timeStr = ''
+                        if (lastMsg?.created_at) {
+                            const msgDate = new Date(lastMsg.created_at)
+                            const now = new Date()
+                            const diffMs = now.getTime() - msgDate.getTime()
+                            const diffMins = Math.floor(diffMs / 60000)
+                            const diffHours = Math.floor(diffMs / 3600000)
+                            const diffDays = Math.floor(diffMs / 86400000)
+                            
+                            if (diffMins < 1) timeStr = 'только что'
+                            else if (diffMins < 60) timeStr = `${diffMins}м`
+                            else if (diffHours < 24) timeStr = `${diffHours}ч`
+                            else if (diffDays < 7) timeStr = `${diffDays}д`
+                            else timeStr = msgDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
+                        }
+                        
+                        return (
+                            <div 
+                                key={chat.id} 
+                                onClick={() => router.push(`/chat/${chat.id}`)} 
+                                className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer border-b border-gray-100 dark:border-gray-800 transition-colors flex items-center gap-3 relative"
+                            >
+                                {/* Avatar */}
+                                <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gradient-to-br from-blue-400 to-indigo-500">
+                                    {avatarUrl ? (
+                                        <img src={avatarUrl} className="w-full h-full object-cover" alt={displayName} />
+                                    ) : (
+                                        <span className="text-white font-bold text-lg">
+                                            {displayName[0]?.toUpperCase() || '?'}
+                                        </span>
+                                    )}
+                                </div>
+                                
+                                {/* Chat info */}
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center justify-between mb-1">
+                                        <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                                            {displayName}
+                                        </div>
+                                        {timeStr && (
+                                            <div className="text-xs text-gray-400 ml-2 shrink-0">{timeStr}</div>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center justify-between">
+                                        <div className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
+                                            {lastMsgPreview}
+                                        </div>
+                                        {unreadCount > 0 && (
+                                            <div className="ml-2 bg-blue-500 text-white text-xs font-bold rounded-full px-2 py-0.5 min-w-[20px] text-center shrink-0">
+                                                {unreadCount > 99 ? '99+' : unreadCount}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
                             </div>
-                            <div>
-                                <div className="font-medium text-gray-900 dark:text-gray-100">{chat.name || 'Chat'}</div>
-                                <div className="text-sm text-gray-500 dark:text-gray-400 truncate">Select to view messages</div>
-                            </div>
-                        </div>
-                    ))}
+                        )
+                    })}
                 </div>
             )
          )}

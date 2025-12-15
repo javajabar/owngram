@@ -114,7 +114,16 @@ export function MessageBubble({ message }: { message: Message }) {
         <div className={cn("text-[10px] mt-1 flex items-center justify-end gap-1 opacity-70", isMe ? "text-blue-100" : "text-gray-400")}>
             <span>{format(new Date(message.created_at), 'HH:mm')}</span>
             {isMe && (
-                message.read_at ? <CheckCheck className="w-3 h-3" /> : <Check className="w-3 h-3" />
+                <span className="flex items-center" title={message.read_at ? 'Прочитано' : 'Отправлено'}>
+                    {message.read_at ? (
+                        <CheckCheck className="w-3 h-3 text-blue-300" />
+                    ) : (
+                        <Check className="w-3 h-3" />
+                    )}
+                </span>
+            )}
+            {!isMe && message.read_at && (
+                <span className="text-[9px] opacity-50">✓ Прочитано</span>
             )}
         </div>
       </div>

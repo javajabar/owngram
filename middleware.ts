@@ -76,30 +76,34 @@ export async function middleware(request: NextRequest) {
   const isFromChat = referer?.includes('/chat') // Navigation within chat
   const justLoggedIn = request.cookies.get('justLoggedIn')?.value === 'true'
   
-  // For chat routes, be more lenient to allow navigation within chat area:
+  // For chat routes, protect them properly:
   // - Always allow if session exists
   // - Allow if Supabase cookies exist (session might be syncing)
   // - Allow if coming from login (just logged in)
-  // - Allow if navigating within chat (user is already in chat area - this is the key fix)
-  // - Only redirect if none of the above AND we have a referer from outside chat
+  // - Allow if navigating within chat (user is already in chat area)
+  // - Redirect to login if direct access without auth
   if (request.nextUrl.pathname.startsWith('/chat')) {
     const shouldAllow = session || 
                        hasSupabaseCookie || 
                        isFromLogin || 
                        justLoggedIn || 
-                       isFromChat // Key: allow navigation within chat
+                       isFromChat
     
-    // Only redirect if:
-    // 1. No session AND
-    // 2. No Supabase cookies AND
-    // 3. Not coming from login AND
-    // 4. Not just logged in AND
-    // 5. Not navigating within chat (i.e., coming from outside)
-    if (!shouldAllow && referer && !referer.includes('/chat') && !referer.includes('/login')) {
-      // This is likely a direct access attempt without auth
-      return NextResponse.redirect(new URL('/login', request.url))
+    // If no session and no cookies, redirect to login
+    // Exception: allow if navigating within chat (referer includes /chat)
+    // This prevents redirect loops while still protecting direct access
+    if (!shouldAllow) {
+      // If coming from within the app (same origin), allow (client will handle)
+      // If direct access or from outside, redirect to login
+      if (!referer || !referer.includes(request.nextUrl.origin)) {
+        // Direct access without auth - redirect to login
+        return NextResponse.redirect(new URL('/login', request.url))
+      }
+      // If referer is from same origin but not /chat or /login, still redirect
+      if (referer && !referer.includes('/chat') && !referer.includes('/login')) {
+        return NextResponse.redirect(new URL('/login', request.url))
+      }
     }
-    // Otherwise, allow access (let client-side handle auth state)
   }
   
   // Clear the justLoggedIn cookie after checking (one-time use)

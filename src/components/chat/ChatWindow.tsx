@@ -16,6 +16,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [isRecording, setIsRecording] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
+  const [unreadCount, setUnreadCount] = useState(0)
+  const [isTyping, setIsTyping] = useState(false)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { user } = useAuthStore()
@@ -162,6 +164,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               msg.id === payload.new.id ? { ...msg, ...payload.new } : msg
           ))
       })
+      .on('broadcast', { event: 'typing' }, (payload) => {
+          // Only show typing if it's from the other user
+          if (payload.payload.user_id !== user.id) {
+              setIsTyping(payload.payload.is_typing)
+              // Auto-hide after 3 seconds
+              if (payload.payload.is_typing) {
+                  setTimeout(() => setIsTyping(false), 3000)
+              }
+          }
+      })
       .subscribe()
 
     // Mark unread messages as read when entering chat
@@ -171,10 +183,37 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             .eq('chat_id', chatId)
             .neq('sender_id', user.id)
             .is('read_at', null)
+        
+        // Update unread count
+        const { count } = await supabase
+            .from('messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('chat_id', chatId)
+            .neq('sender_id', user.id)
+            .is('read_at', null)
+        setUnreadCount(count || 0)
     }
     markAllAsRead()
-
-    return () => { supabase.removeChannel(channel) }
+    
+    // Update unread count periodically
+    const updateUnreadCount = async () => {
+        const { count } = await supabase
+            .from('messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('chat_id', chatId)
+            .neq('sender_id', user.id)
+            .is('read_at', null)
+        setUnreadCount(count || 0)
+    }
+    
+    // Update unread count when messages change
+    const unreadInterval = setInterval(updateUnreadCount, 2000)
+    
+    // Cleanup on unmount
+    return () => { 
+        supabase.removeChannel(channel)
+        if (unreadInterval) clearInterval(unreadInterval)
+    }
   }, [chatId, user])
 
   const markAsRead = async (messageId: string) => {
@@ -206,21 +245,51 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     <div className="flex flex-col h-full bg-gray-50 dark:bg-gray-900">
       {/* Header */}
       <div className="h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center px-4 justify-between shrink-0 shadow-sm z-10">
-        <div className="flex items-center gap-3">
-            <button onClick={() => router.push('/chat')} className="md:hidden p-2 -ml-2 text-gray-600 dark:text-gray-300">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+            <button onClick={() => router.push('/chat')} className="md:hidden p-2 -ml-2 text-gray-600 dark:text-gray-300 shrink-0">
                 <ArrowLeft className="w-6 h-6" />
             </button>
-            <div className="w-10 h-10 bg-gradient-to-tr from-blue-400 to-purple-500 rounded-full flex items-center justify-center text-white font-bold shrink-0">
-                {otherUser?.username?.[0]?.toUpperCase() || (chat?.name?.[0] || '?')}
+            {/* Avatar */}
+            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gradient-to-tr from-blue-400 to-purple-500">
+                {otherUser?.avatar_url ? (
+                    <img src={otherUser.avatar_url} className="w-full h-full object-cover" alt={otherUser.username || 'User'} />
+                ) : (
+                    <span className="text-white font-bold text-lg">
+                        {(chat?.type === 'dm' ? (otherUser?.username?.[0] || otherUser?.full_name?.[0]) : (chat?.name?.[0])) || '?'}
+                    </span>
+                )}
             </div>
-            <div className="min-w-0">
-                <div className="font-bold text-gray-900 dark:text-white truncate">
-                    {chat?.type === 'dm' ? (otherUser?.username || 'User') : (chat?.name || 'Chat')}
+            <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                    <div className="font-bold text-gray-900 dark:text-white truncate">
+                        {chat?.type === 'dm' 
+                            ? (otherUser?.username || otherUser?.full_name || 'User')
+                            : (chat?.name || 'Chat')
+                        }
+                    </div>
+                    {unreadCount > 0 && (
+                        <div className="bg-blue-500 text-white text-xs font-bold rounded-full px-2 py-0.5 min-w-[20px] text-center shrink-0">
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                        </div>
+                    )}
                 </div>
-                <div className="text-xs text-green-500">Online</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                    {isTyping ? (
+                        <span className="text-blue-500 flex items-center gap-1">
+                            <span>печатает</span>
+                            <span className="flex gap-0.5">
+                                <span className="animate-bounce" style={{ animationDelay: '0ms' }}>.</span>
+                                <span className="animate-bounce" style={{ animationDelay: '150ms' }}>.</span>
+                                <span className="animate-bounce" style={{ animationDelay: '300ms' }}>.</span>
+                            </span>
+                        </span>
+                    ) : (
+                        <span className="text-green-500">Online</span>
+                    )}
+                </div>
             </div>
         </div>
-        <button className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full">
+        <button className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full shrink-0">
             <MoreVertical className="w-5 h-5" />
         </button>
       </div>
@@ -247,7 +316,44 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             <input
                 type="text"
                 value={newMessage}
-                onChange={e => setNewMessage(e.target.value)}
+                onChange={e => {
+                    setNewMessage(e.target.value)
+                }}
+                onInput={(e) => {
+                    // Send typing indicator when user types
+                    const value = (e.target as HTMLInputElement).value
+                    if (value.trim() && chatId && user) {
+                        // Use the existing channel to send typing event
+                        const typingChannel = supabase.channel(`chat:${chatId}`)
+                        typingChannel.send({
+                            type: 'broadcast',
+                            event: 'typing',
+                            payload: { user_id: user.id, is_typing: true }
+                        })
+                        
+                        // Clear previous timeout
+                        const timeoutKey = `typingTimeout_${chatId}`
+                        if ((window as any)[timeoutKey]) {
+                            clearTimeout((window as any)[timeoutKey])
+                        }
+                        
+                        // Stop typing after 2 seconds of no input
+                        ;(window as any)[timeoutKey] = setTimeout(() => {
+                            typingChannel.send({
+                                type: 'broadcast',
+                                event: 'typing',
+                                payload: { user_id: user.id, is_typing: false }
+                            })
+                        }, 2000)
+                    }
+                }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        sendMessage(e)
+                        setIsTyping(false)
+                    }
+                }}
                 placeholder="Message..."
                 className="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-800 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white transition-all"
             />
