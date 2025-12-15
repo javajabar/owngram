@@ -268,14 +268,14 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                 {isUploading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Square className="w-4 h-4 fill-current" />}
                             </button>
                         </div>
-                    ) : (
-                        <button 
-                            type="button" 
+            ) : (
+                <button 
+                    type="button" 
                             onClick={startRecording}
-                            className="p-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full transition-all active:scale-95"
-                        >
-                            <Mic className="w-5 h-5" />
-                        </button>
+                    className="p-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full transition-all active:scale-95"
+                >
+                    <Mic className="w-5 h-5" />
+                </button>
                     )}
                 </div>
             )}

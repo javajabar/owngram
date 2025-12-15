@@ -68,14 +68,31 @@ export async function middleware(request: NextRequest) {
     cookie.name.includes('auth-token')
   )
   
-  if (request.nextUrl.pathname.startsWith('/chat') && !session && !hasSupabaseCookie) {
+  // Check if user just logged in (via cookie or referer)
+  const referer = request.headers.get('referer')
+  const isFromLogin = referer?.includes('/login')
+  const justLoggedIn = request.cookies.get('justLoggedIn')?.value === 'true'
+  
+  // Only redirect to login if:
+  // 1. No session AND
+  // 2. No Supabase cookies AND
+  // 3. Not coming from login page AND
+  // 4. Not just logged in (to avoid redirect loops)
+  if (request.nextUrl.pathname.startsWith('/chat') && !session && !hasSupabaseCookie && !isFromLogin && !justLoggedIn) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
-
-  // Redirect authenticated users away from login page
-  if (request.nextUrl.pathname === '/login' && session) {
-    return NextResponse.redirect(new URL('/chat', request.url))
+  
+  // Clear the justLoggedIn cookie after checking (one-time use)
+  if (justLoggedIn) {
+    response.cookies.set('justLoggedIn', '', { maxAge: 0 })
   }
+  
+  // If coming from login but no session yet, allow access (cookies might be syncing)
+  // The client-side will handle showing appropriate UI if session is missing
+
+  // Don't automatically redirect from /login to avoid redirect loops
+  // Let the client-side handle navigation after successful login
+  // This prevents issues when cookies are still syncing
 
   // Redirect root to appropriate page based on auth status
   if (request.nextUrl.pathname === '/') {

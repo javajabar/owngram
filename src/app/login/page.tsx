@@ -139,16 +139,41 @@ export default function LoginPage() {
         console.log('Final session check before redirect:', { hasSession: !!finalSession })
         
         if (finalSession) {
-          // Force a full page reload to ensure cookies are synced with server
-          // This helps middleware see the session properly
-          window.location.href = '/chat'
+          // Show success message briefly before redirect
+          setError(null)
+          setLoading(false)
+          
+          // Set flag in cookie to help middleware know user just logged in
+          if (typeof document !== 'undefined') {
+            document.cookie = 'justLoggedIn=true; path=/; max-age=10; SameSite=Lax'
+          }
+          
+          // Wait a bit more to ensure cookies are fully set
+          await new Promise(resolve => setTimeout(resolve, 500))
+          
+          // Use router.push instead of window.location to avoid full page reload
+          // This allows middleware to see the session properly
+          console.log('Redirecting to /chat using router...')
+          router.push('/chat')
+          router.refresh()
+          
+          // Fallback: if router doesn't work after 2 seconds, use window.location
+          setTimeout(() => {
+            if (typeof window !== 'undefined' && window.location.pathname === '/login') {
+              console.log('Router failed, using window.location as fallback')
+              window.location.href = '/chat'
+            }
+          }, 2000)
         } else {
           // If session still not available, show error but don't throw
           // User can manually refresh and should be logged in
           setError('Вход выполнен, но сессия не синхронизирована. Обновите страницу.')
           setLoading(false)
+          if (typeof document !== 'undefined') {
+            document.cookie = 'justLoggedIn=true; path=/; max-age=10; SameSite=Lax'
+          }
           setTimeout(() => {
-            window.location.href = '/chat'
+            router.push('/chat')
           }, 3000)
         }
         
@@ -279,10 +304,12 @@ export default function LoginPage() {
                   !isLogin ? "max-h-64 opacity-100" : "max-h-0 opacity-0"
               )}>
                  <div>
-                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Имя пользователя</label>
+                    <label htmlFor="username" className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Имя пользователя</label>
                     <div className="relative">
                         <span className="absolute left-3 top-2 text-gray-400">@</span>
                         <input
+                            id="username"
+                            name="username"
                             type="text"
                             value={username}
                             onChange={handleUsernameChange}
@@ -292,8 +319,10 @@ export default function LoginPage() {
                     </div>
                  </div>
                  <div>
-                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Полное имя</label>
+                    <label htmlFor="fullName" className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Полное имя</label>
                     <input
+                        id="fullName"
+                        name="fullName"
                         type="text"
                         value={fullName}
                         onChange={(e) => setFullName(e.target.value)}
@@ -302,8 +331,10 @@ export default function LoginPage() {
                     />
                  </div>
                  <div>
-                    <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Дата рождения</label>
+                    <label htmlFor="birthDate" className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Дата рождения</label>
                     <input
+                        id="birthDate"
+                        name="birthDate"
                         type="date"
                         value={birthDate}
                         onChange={(e) => {
@@ -322,8 +353,10 @@ export default function LoginPage() {
 
               {/* Main fields */}
               <div>
-                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Электронная почта</label>
+                <label htmlFor="email" className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Электронная почта</label>
                 <input
+                  id="email"
+                  name="email"
                   type="email"
                   required
                   value={email}
@@ -334,8 +367,10 @@ export default function LoginPage() {
               </div>
               
               <div>
-                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Пароль</label>
+                <label htmlFor="password" className="block text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">Пароль</label>
                 <input
+                  id="password"
+                  name="password"
                   type="password"
                   required
                   value={password}

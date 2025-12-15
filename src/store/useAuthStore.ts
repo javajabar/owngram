@@ -6,6 +6,7 @@ interface AuthState {
   user: User | null
   loading: boolean
   error: string | null
+  authListenerSet: boolean
   setUser: (user: User | null) => void
   checkUser: () => Promise<void>
   signOut: () => Promise<void>
@@ -13,10 +14,14 @@ interface AuthState {
   setError: (error: string | null) => void
 }
 
+// Global auth listener (set up only once)
+let authListenerSet = false
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   loading: true,
   error: null,
+  authListenerSet: false,
   setUser: (user) => set({ user }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
@@ -32,13 +37,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
       set({ user: session?.user ?? null, loading: false })
 
-      // Listen for auth changes
-      supabase.auth.onAuthStateChange((event, session) => {
-        set({ user: session?.user ?? null, loading: false })
-        if (event === 'SIGNED_OUT') {
-          set({ user: null, error: null })
-        }
-      })
+      // Set up auth state listener only once globally
+      if (!authListenerSet) {
+        authListenerSet = true
+        set({ authListenerSet: true })
+        supabase.auth.onAuthStateChange((event, session) => {
+          set({ user: session?.user ?? null, loading: false })
+          if (event === 'SIGNED_OUT') {
+            set({ user: null, error: null })
+          }
+        })
+      }
     } catch (error) {
       set({ error: 'Failed to check authentication', loading: false })
     }
