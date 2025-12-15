@@ -69,7 +69,17 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       console.error('Auth error:', err)
-      setError(err.message || 'Произошла ошибка. Проверьте подключение к интернету.')
+      let errorMessage = 'Произошла ошибка. Проверьте подключение к интернету.'
+      
+      if (err.message?.includes('Invalid login credentials') || err.message?.includes('Invalid credentials')) {
+        errorMessage = 'Неверный email или пароль. Проверьте данные и попробуйте снова.'
+      } else if (err.message?.includes('timeout')) {
+        errorMessage = 'Превышено время ожидания. Проверьте подключение к интернету.'
+      } else if (err.message) {
+        errorMessage = err.message
+      }
+      
+      setError(errorMessage)
       setLoading(false)
     }
   }
