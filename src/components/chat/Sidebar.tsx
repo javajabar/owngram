@@ -425,32 +425,34 @@ export function Sidebar() {
                     <div className="text-center py-4 text-gray-400 text-sm">Searching...</div>
                 ) : users.length === 0 ? (
                     <div className="text-center p-4 text-gray-400 text-sm">
-                        {searchQuery ? `No user found for "@${searchQuery}"` : "Type to search people"}
+                        {searchQuery ? `No user found for "@${searchQuery.replace(/^@+/, '')}"` : "Type to search people"}
                     </div>
                 ) : (
-                    users.map(u => (
-                    <div 
-                       key={u.id} 
-                       onClick={() => createChat(u.id)} 
-                       className="p-3 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer flex items-center gap-3 transition-colors"
-                    >
-                        <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full flex items-center justify-center shrink-0 text-white font-bold">
-                           {u.avatar_url ? (
-                               <img src={u.avatar_url} className="w-10 h-10 rounded-full object-cover" alt={u.username || 'User'} />
-                           ) : (
-                               (u.username?.[1] || u.full_name?.[0] || 'U').toUpperCase()
-                           )}
-                        </div>
+                    users.map(u => {
+                        const cleanUsername = u.username?.replace(/^@+/, '') || 'Anonymous'
+                        return (
+                        <div 
+                           key={u.id} 
+                           onClick={() => createChat(u.id)} 
+                           className="p-3 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer flex items-center gap-3 transition-colors"
+                        >
+                            <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full flex items-center justify-center shrink-0 text-white font-bold">
+                               {u.avatar_url ? (
+                                   <img src={u.avatar_url} className="w-10 h-10 rounded-full object-cover" alt={cleanUsername} />
+                               ) : (
+                                   (cleanUsername[0] || u.full_name?.[0] || 'U').toUpperCase()
+                               )}
+                            </div>
                         <div className="min-w-0">
                            <div className="truncate font-medium text-gray-900 dark:text-gray-100">
-                                {u.username || 'Anonymous'}
+                                {u.full_name || cleanUsername}
                            </div>
-                           {u.full_name && u.full_name !== u.username && (
-                               <div className="text-xs text-gray-500 truncate">{u.full_name}</div>
+                           {u.full_name && (
+                               <div className="text-xs text-gray-500 truncate">@{cleanUsername}</div>
                            )}
                         </div>
-                    </div>
-                )))}
+                        </div>
+                    )}))}
             </div>
          ) : (
             chats.length === 0 ? (
@@ -462,7 +464,7 @@ export function Sidebar() {
                 <div className="flex flex-col">
                     {chats.map((chat: any) => {
                         const displayName = chat.type === 'dm' 
-                            ? (chat.otherUser?.username || chat.otherUser?.full_name || 'User')
+                            ? (chat.otherUser?.full_name || chat.otherUser?.username?.replace(/^@+/, '') || 'User')
                             : (chat.name || 'Chat')
                         const avatarUrl = chat.type === 'dm' ? chat.otherUser?.avatar_url : null
                         const lastMsg = chat.lastMessage

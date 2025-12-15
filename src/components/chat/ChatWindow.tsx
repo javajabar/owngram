@@ -580,22 +580,15 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     <div className="mb-6">
                         <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
                             {chat?.type === 'dm' 
-                                ? (otherUser?.full_name || otherUser?.username) 
+                                ? (otherUser?.full_name || otherUser?.username?.replace(/^@+/, '') || 'User') 
                                 : chat?.name}
                         </h2>
-                        {chat?.type === 'dm' && (
-                            <p className="text-blue-500 text-sm">@{otherUser?.username}</p>
+                        {chat?.type === 'dm' && otherUser?.username && (
+                            <p className="text-blue-500 text-sm">@{otherUser.username.replace(/^@+/, '')}</p>
                         )}
-                    </div>
-                    
-                    {/* Info Fields */}
-                    <div className="space-y-4">
-                         <div className="p-4 bg-gray-50 dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700">
-                            <div className="text-xs text-gray-400 uppercase font-semibold mb-1">ID Пользователя</div>
-                            <div className="text-sm text-gray-700 dark:text-gray-300 font-mono text-xs">
-                                {otherUser?.id || chat?.id}
-                            </div>
-                         </div>
+                        {chat?.type === 'dm' && otherUser?.status && (
+                            <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{otherUser.status}</p>
+                        )}
                     </div>
                     
                     <button 
