@@ -31,15 +31,21 @@ export default function LoginPage() {
     try {
       if (isLogin) {
         // --- LOGIN ---
-        const { error } = await supabase.auth.signInWithPassword({ email, password })
+        const loginPromise = supabase.auth.signInWithPassword({ email, password })
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Request timeout. Check your internet connection.')), 10000)
+        )
+        
+        const { error } = await Promise.race([loginPromise, timeoutPromise]) as any
         if (error) throw error
-        router.push('/chat')
+        
+        // Use window.location for more reliable navigation
+        window.location.href = '/chat'
       } else {
         // --- REGISTRATION ---
         if (!username || !birthDate || !fullName) throw new Error('Please fill all fields')
         
-        // 1. Create user with metadata
-        const { data: authData, error: authError } = await supabase.auth.signUp({
+        const signupPromise = supabase.auth.signUp({
           email,
           password,
           options: {
@@ -50,20 +56,20 @@ export default function LoginPage() {
             }
           }
         })
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Request timeout. Check your internet connection.')), 10000)
+        )
+        
+        const { data: authData, error: authError } = await Promise.race([signupPromise, timeoutPromise]) as any
         if (authError) throw authError
-        if (!authData.user) throw new Error('Пользователь не создан')
-
-        // 2. Profile creation is handled by the database trigger using the metadata provided above
-        // No manual insertion or update needed here, avoiding RLS issues
+        if (!authData?.user) throw new Error('Пользователь не создан')
 
         alert('Registration successful! Logging you in...')
-
-        alert('Registration successful! Logging you in...')
-        router.push('/chat')
+        window.location.href = '/chat'
       }
     } catch (err: any) {
-      setError(err.message)
-    } finally {
+      console.error('Auth error:', err)
+      setError(err.message || 'Произошла ошибка. Проверьте подключение к интернету.')
       setLoading(false)
     }
   }
