@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useRouter } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { X, Mail, CheckCircle } from 'lucide-react'
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true)
@@ -15,12 +16,59 @@ export default function LoginPage() {
   
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showConfirmationModal, setShowConfirmationModal] = useState(false)
+  const [confirmationCode, setConfirmationCode] = useState('')
+  const [verifying, setVerifying] = useState(false)
   const router = useRouter()
 
   // Validation and username formatting
   const handleUsernameChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     let val = e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') // only english letters, numbers, and _
     setUsername(val)
+  }
+
+  const handleVerifyCode = async () => {
+    if (confirmationCode.length !== 6) {
+      setError('Введите 6-значный код')
+      return
+    }
+    
+    setVerifying(true)
+    try {
+      // Try to verify OTP code
+      const { error: verifyError } = await supabase.auth.verifyOtp({
+        email,
+        token: confirmationCode,
+        type: 'email'
+      })
+      
+      if (verifyError) {
+        // If OTP verification fails, try to sign in (user might have clicked link)
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+        if (signInError) throw verifyError
+      }
+      
+      // Success - redirect to chat
+      window.location.href = '/chat'
+    } catch (err: any) {
+      setError('Неверный код или ссылка еще не подтверждена. Проверьте почту и перейдите по ссылке или введите код.')
+      setVerifying(false)
+    }
+  }
+
+  const handleResendCode = async () => {
+    try {
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email
+      })
+      if (error) throw error
+      setError(null)
+      setConfirmationCode('')
+      alert('Письмо с подтверждением отправлено повторно на вашу почту!')
+    } catch (err: any) {
+      setError('Ошибка при отправке письма. Попробуйте позже.')
+    }
   }
 
   const handleAuth = async (e: React.FormEvent) => {
@@ -45,10 +93,14 @@ export default function LoginPage() {
         // --- REGISTRATION ---
         if (!username || !birthDate || !fullName) throw new Error('Заполните все поля')
         
+        // Get current site URL for email confirmation redirect
+        const siteUrl = typeof window !== 'undefined' ? window.location.origin : 'https://luxury-cat-55477b.netlify.app'
+        
         const signupPromise = supabase.auth.signUp({
           email,
           password,
           options: {
+            emailRedirectTo: `${siteUrl}/chat`,
             data: {
               username: `@${username}`,
               full_name: fullName,
@@ -64,8 +116,20 @@ export default function LoginPage() {
         if (authError) throw authError
         if (!authData?.user) throw new Error('Пользователь не создан')
 
-        alert('Регистрация успешна! Выполняется вход...')
-        window.location.href = '/chat'
+        // Show confirmation modal
+        setShowConfirmationModal(true)
+        setLoading(false)
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Request timeout. Check your internet connection.')), 10000)
+        )
+        
+        const { data: authData, error: authError } = await Promise.race([signupPromise, timeoutPromise]) as any
+        if (authError) throw authError
+        if (!authData?.user) throw new Error('Пользователь не создан')
+
+        // Show confirmation modal instead of redirecting
+        setShowConfirmationModal(true)
+        setLoading(false)
       }
     } catch (err: any) {
       console.error('Auth error:', err)
@@ -210,6 +274,83 @@ export default function LoginPage() {
           </div>
         </div>
       </div>
+
+      {/* Confirmation Modal */}
+      {showConfirmationModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6 relative">
+            <button
+              onClick={() => setShowConfirmationModal(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <CheckCircle className="w-8 h-8 text-green-600 dark:text-green-400" />
+              </div>
+              <h3 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+                Успешная регистрация!
+              </h3>
+              <p className="text-gray-600 dark:text-gray-400 mb-2">
+                Мы отправили письмо с подтверждением на <strong className="text-gray-900 dark:text-white">{email}</strong>
+              </p>
+              <p className="text-sm text-gray-500 dark:text-gray-400">
+                Перейдите по ссылке в письме или введите 6-значный код (если настроен OTP)
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Введите 6-значный код из письма (опционально):
+                </label>
+                <input
+                  type="text"
+                  value={confirmationCode}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, '').slice(0, 6)
+                    setConfirmationCode(val)
+                    setError(null)
+                  }}
+                  className="w-full px-4 py-3 text-center text-2xl font-mono tracking-widest border-2 border-gray-200 dark:border-gray-700 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-white"
+                  placeholder="000000"
+                  maxLength={6}
+                />
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 text-center">
+                  Или просто перейдите по ссылке из письма
+                </p>
+              </div>
+
+              {error && (
+                <div className="text-red-500 text-sm text-center bg-red-50 dark:bg-red-900/20 p-3 rounded-xl">
+                  {error}
+                </div>
+              )}
+
+              <button
+                onClick={handleVerifyCode}
+                disabled={verifying || (confirmationCode.length > 0 && confirmationCode.length !== 6)}
+                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {verifying ? 'Проверка...' : confirmationCode.length > 0 ? 'Подтвердить код' : 'Я перешел по ссылке'}
+              </button>
+
+              <button
+                onClick={handleResendCode}
+                className="w-full py-2 text-sm text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                Отправить код повторно
+              </button>
+
+              <p className="text-xs text-center text-gray-500 dark:text-gray-400">
+                После подтверждения почты вы сможете войти в аккаунт
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
