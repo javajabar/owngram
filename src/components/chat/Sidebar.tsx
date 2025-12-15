@@ -413,36 +413,37 @@ export function Sidebar() {
                                     onClick={() => router.push(`/chat/${chat.id}`)} 
                                     className="flex items-center gap-3 flex-1 min-w-0"
                                 >
-                                {/* Avatar */}
-                                <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gradient-to-br from-blue-400 to-indigo-500">
-                                    {avatarUrl ? (
-                                        <img src={avatarUrl} className="w-full h-full object-cover" alt={displayName} />
-                                    ) : (
-                                        <span className="text-white font-bold text-lg">
-                                            {displayName[0]?.toUpperCase() || '?'}
-                                        </span>
-                                    )}
-                                </div>
-                                
-                                {/* Chat info */}
-                                <div className="flex-1 min-w-0">
-                                    <div className="flex items-center justify-between mb-1">
-                                        <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
-                                            {displayName}
-                                        </div>
-                                        {timeStr && (
-                                            <div className="text-xs text-gray-400 ml-2 shrink-0">{timeStr}</div>
+                                    {/* Avatar */}
+                                    <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gradient-to-br from-blue-400 to-indigo-500">
+                                        {avatarUrl ? (
+                                            <img src={avatarUrl} className="w-full h-full object-cover" alt={displayName} />
+                                        ) : (
+                                            <span className="text-white font-bold text-lg">
+                                                {displayName[0]?.toUpperCase() || '?'}
+                                            </span>
                                         )}
                                     </div>
-                                    <div className="flex items-center justify-between">
-                                        <div className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
-                                            {lastMsgPreview}
-                                        </div>
-                                        {unreadCount > 0 && (
-                                            <div className="ml-2 bg-blue-500 text-white text-xs font-bold rounded-full px-2 py-0.5 min-w-[20px] text-center shrink-0">
-                                                {unreadCount > 99 ? '99+' : unreadCount}
+                                    
+                                    {/* Chat info */}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between mb-1">
+                                            <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                                                {displayName}
                                             </div>
-                                        )}
+                                            {timeStr && (
+                                                <div className="text-xs text-gray-400 ml-2 shrink-0">{timeStr}</div>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <div className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
+                                                {lastMsgPreview}
+                                            </div>
+                                            {unreadCount > 0 && (
+                                                <div className="ml-2 bg-blue-500 text-white text-xs font-bold rounded-full px-2 py-0.5 min-w-[20px] text-center shrink-0">
+                                                    {unreadCount > 99 ? '99+' : unreadCount}
+                                                </div>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                                 
@@ -452,7 +453,7 @@ export function Sidebar() {
                                         e.stopPropagation()
                                         setOpenChatMenuId(openChatMenuId === chat.id ? null : chat.id)
                                     }}
-                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700"
+                                    className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 shrink-0"
                                 >
                                     <MoreVertical className="w-4 h-4 text-gray-500" />
                                 </button>
