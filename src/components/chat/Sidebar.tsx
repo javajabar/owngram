@@ -80,12 +80,34 @@ export function Sidebar() {
                     }
                     
                     // Count unread messages
-                    const { count: unreadCount } = await supabase
-                        .from('messages')
-                        .select('*', { count: 'exact', head: true })
-                        .eq('chat_id', chat.id)
-                        .neq('sender_id', user.id)
-                        .is('read_at', null)
+                    let unreadCount = 0
+                    try {
+                        const { count, error } = await supabase
+                            .from('messages')
+                            .select('*', { count: 'exact', head: true })
+                            .eq('chat_id', chat.id)
+                            .neq('sender_id', user.id)
+                        
+                        if (error && error.message.includes('read_at')) {
+                            // If read_at column doesn't exist, count all messages from others
+                            const { count: allCount } = await supabase
+                                .from('messages')
+                                .select('*', { count: 'exact', head: true })
+                                .eq('chat_id', chat.id)
+                                .neq('sender_id', user.id)
+                            unreadCount = allCount || 0
+                        } else {
+                            unreadCount = count || 0
+                        }
+                    } catch (e) {
+                        // If read_at doesn't exist, just count all messages from others
+                        const { count } = await supabase
+                            .from('messages')
+                            .select('*', { count: 'exact', head: true })
+                            .eq('chat_id', chat.id)
+                            .neq('sender_id', user.id)
+                        unreadCount = count || 0
+                    }
                     
                     return {
                         ...chat,

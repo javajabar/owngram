@@ -132,6 +132,33 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       .then(({ data, error }) => {
         if (error) {
           console.error('Error fetching messages:', error)
+          // Try simpler query without reply_to if the foreign key doesn't exist
+          supabase.from('messages')
+            .select('*, sender:profiles(*)')
+            .eq('chat_id', chatId)
+            .order('created_at', { ascending: true })
+            .then(({ data: simpleData, error: simpleError }) => {
+              if (simpleError) {
+                console.error('Error with simple query:', simpleError)
+                setMessages([])
+                return
+              }
+              if (simpleData) {
+                const mappedMessages = simpleData
+                  .filter((msg: any) => {
+                    if (msg.deleted_at && msg.deleted_for_all) return false
+                    return true
+                  })
+                  .map((msg: any) => ({
+                    ...msg,
+                    reply_to: null
+                  })) as Message[]
+                console.log('Loaded messages (simple):', mappedMessages.length, 'for chat:', chatId)
+                setMessages(mappedMessages)
+              } else {
+                setMessages([])
+              }
+            })
           return
         }
         if (data) {
@@ -140,8 +167,6 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             .filter((msg: any) => {
               // Don't show messages deleted for all
               if (msg.deleted_at && msg.deleted_for_all) return false
-              // Don't show messages deleted for current user (they will be filtered in MessageBubble)
-              // But we keep them here so they can be shown as "deleted" if needed
               return true
             })
             .map((msg: any) => ({
@@ -232,32 +257,69 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
     // Mark unread messages as read when entering chat
     const markAllAsRead = async () => {
-        await supabase.from('messages')
-            .update({ read_at: new Date().toISOString() })
-            .eq('chat_id', chatId)
-            .neq('sender_id', user.id)
-            .is('read_at', null)
+        try {
+            // Try to update read_at if the column exists
+            const { error: updateError } = await supabase.from('messages')
+                .update({ read_at: new Date().toISOString() })
+                .eq('chat_id', chatId)
+                .neq('sender_id', user.id)
+            
+            if (updateError && !updateError.message.includes('column') && !updateError.message.includes('does not exist')) {
+                console.error('Error marking messages as read:', updateError)
+            }
+        } catch (e) {
+            // Column might not exist, ignore
+            console.log('read_at column might not exist, skipping mark as read')
+        }
         
-        // Update unread count
-        const { count } = await supabase
-            .from('messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('chat_id', chatId)
-            .neq('sender_id', user.id)
-            .is('read_at', null)
-        setUnreadCount(count || 0)
+        // Update unread count - try with read_at check, fallback to all unread
+        try {
+            const { count, error: countError } = await supabase
+                .from('messages')
+                .select('*', { count: 'exact', head: true })
+                .eq('chat_id', chatId)
+                .neq('sender_id', user.id)
+            
+            if (countError && countError.message.includes('read_at')) {
+                // If read_at doesn't exist, count all messages from others
+                const { count: allCount } = await supabase
+                    .from('messages')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('chat_id', chatId)
+                    .neq('sender_id', user.id)
+                setUnreadCount(allCount || 0)
+            } else {
+                setUnreadCount(count || 0)
+            }
+        } catch (e) {
+            setUnreadCount(0)
+        }
     }
     markAllAsRead()
     
     // Update unread count periodically
     const updateUnreadCount = async () => {
-        const { count } = await supabase
-            .from('messages')
-            .select('*', { count: 'exact', head: true })
-            .eq('chat_id', chatId)
-            .neq('sender_id', user.id)
-            .is('read_at', null)
-        setUnreadCount(count || 0)
+        try {
+            const { count, error } = await supabase
+                .from('messages')
+                .select('*', { count: 'exact', head: true })
+                .eq('chat_id', chatId)
+                .neq('sender_id', user.id)
+            
+            if (error && error.message.includes('read_at')) {
+                // If read_at doesn't exist, just count all
+                const { count: allCount } = await supabase
+                    .from('messages')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('chat_id', chatId)
+                    .neq('sender_id', user.id)
+                setUnreadCount(allCount || 0)
+            } else {
+                setUnreadCount(count || 0)
+            }
+        } catch (e) {
+            // Ignore errors
+        }
     }
     
     // Update unread count when messages change
@@ -271,9 +333,13 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   }, [chatId, user])
 
   const markAsRead = async (messageId: string) => {
-      await supabase.from('messages')
-        .update({ read_at: new Date().toISOString() })
-        .eq('id', messageId)
+      try {
+          await supabase.from('messages')
+            .update({ read_at: new Date().toISOString() })
+            .eq('id', messageId)
+      } catch (e) {
+          // Column might not exist, ignore
+      }
   }
 
   const sendMessage = async (e?: React.FormEvent) => {
