@@ -111,10 +111,10 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
   }
 
   return (
-    <div className={cn("flex w-full mb-1 group items-end gap-2", isMe ? "justify-end" : "justify-start")}>
+    <div className={cn("flex w-full mb-0.5 group items-end gap-2", isMe ? "justify-end" : "justify-start")}>
       {/* Avatar for other user's messages */}
       {!isMe && showAvatar && (
-        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700 mb-1">
+        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700">
           {message.sender?.avatar_url ? (
             <img src={message.sender.avatar_url} className="w-full h-full object-cover" alt={message.sender.full_name || message.sender.username || 'User'} />
           ) : (
@@ -128,7 +128,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
       <div 
         onContextMenu={handleContextMenu}
         className={cn(
-            "max-w-[70%] px-3 py-2 shadow-sm relative text-sm",
+            "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex items-end gap-1.5",
             message.deleted_at && message.deleted_for_all
                 ? "opacity-50 italic"
                 : "",
@@ -140,18 +140,12 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         {/* Reply Preview */}
         {message.reply_to && (
           <div className={cn(
-            "mb-2 pl-3 border-l-2 text-xs",
+            "mb-1.5 pl-2 border-l-2 text-xs w-full",
             isMe ? "border-white/30 text-blue-100" : "border-gray-300 dark:border-gray-600 text-gray-500"
           )}>
-            <div className="font-medium">{message.reply_to.sender?.username || message.reply_to.sender?.full_name || 'User'}</div>
+            <div className="font-medium">{message.reply_to.sender?.full_name || message.reply_to.sender?.username?.replace(/^@+/, '') || 'User'}</div>
             <div className="truncate">{message.reply_to.content.substring(0, 50)}</div>
           </div>
-        )}
-
-        {!isMe && message.sender && showAvatar && (
-            <div className="text-xs font-bold text-gray-500 dark:text-gray-400 mb-1">
-                {message.sender.full_name || message.sender.username?.replace(/^@/, '') || 'User'}
-            </div>
         )}
 
         {/* Message Context Menu */}
@@ -232,15 +226,15 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         )}
         
         {voiceAttachment ? (
-            <div className="flex items-center gap-3 min-w-[180px] py-1">
+            <div className="flex items-center gap-2 min-w-[180px]">
                 <button 
                     onClick={togglePlay}
                     className={cn(
-                        "w-8 h-8 rounded-full flex items-center justify-center shrink-0 transition-colors",
+                        "w-7 h-7 rounded-full flex items-center justify-center shrink-0 transition-colors",
                         isMe ? "bg-white/20 hover:bg-white/30 text-white" : "bg-blue-100 hover:bg-blue-200 text-blue-600 dark:bg-gray-700 dark:text-blue-400"
                     )}
                 >
-                    {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+                    {isPlaying ? <Pause className="w-3.5 h-3.5 fill-current" /> : <Play className="w-3.5 h-3.5 fill-current ml-0.5" />}
                 </button>
                 <div className="flex-1 h-1 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                     <div 
@@ -254,7 +248,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
                 <audio ref={audioRef} src={voiceAttachment.url} className="hidden" preload="metadata" />
             </div>
         ) : (
-            <div className="text-sm md:text-base break-words whitespace-pre-wrap font-object-sans">
+            <div className="text-sm break-words whitespace-pre-wrap font-object-sans">
                 {message.deleted_at && message.deleted_for_all ? (
                   <span className="italic opacity-70">Сообщение удалено</span>
                 ) : (
@@ -266,13 +260,14 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
             </div>
         )}
         
-        <div className={cn("text-[11px] mt-1 flex items-center justify-end gap-1", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
-            <span className="opacity-70">{format(new Date(message.created_at), 'HH:mm')}</span>
+        {/* Time and checkmarks inline */}
+        <div className={cn("text-[11px] flex items-center gap-0.5 shrink-0", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
+            <span className="opacity-70 whitespace-nowrap">{format(new Date(message.created_at), 'HH:mm')}</span>
             {isMe && (
-                <span className="flex items-center ml-1 gap-0.5" title={message.read_at ? 'Прочитано' : 'Доставлено'}>
-                    <Check className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+                <span className="flex items-center gap-0.5" title={message.read_at ? 'Прочитано' : 'Доставлено'}>
+                    <Check className="w-3 h-3 text-gray-500 dark:text-gray-400" />
                     {message.read_at && (
-                        <Check className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
+                        <Check className="w-3 h-3 text-blue-500 dark:text-blue-400" />
                     )}
                 </span>
             )}
