@@ -110,7 +110,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
   }
 
   return (
-    <div className={cn("flex w-full mb-2 group", isMe ? "justify-end" : "justify-start")}>
+    <div className={cn("flex w-full mb-1 group", isMe ? "justify-end" : "justify-start")}>
       <div 
         onContextMenu={handleContextMenu}
         className={cn(
@@ -119,8 +119,8 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
                 ? "opacity-50 italic"
                 : "",
             isMe 
-                ? "bg-[#EEFFDE] dark:bg-[#2b5278] text-black dark:text-white rounded-2xl rounded-tr-none" 
-                : "bg-white dark:bg-[#182533] text-black dark:text-white rounded-2xl rounded-tl-none"
+                ? "bg-[#E7F3FF] dark:bg-[#2b5278] text-black dark:text-white rounded-2xl rounded-tr-sm" 
+                : "bg-white dark:bg-[#182533] text-black dark:text-white rounded-2xl rounded-tl-sm border border-gray-200 dark:border-gray-700"
         )}
       >
         {/* Reply Preview */}
@@ -252,19 +252,16 @@ export function MessageBubble({ message, onReply, onEdit, onDelete }: MessageBub
             </div>
         )}
         
-        <div className={cn("text-[10px] mt-1 flex items-center justify-end gap-1 opacity-70", isMe ? "text-green-800 dark:text-green-300" : "text-gray-400")}>
-            <span>{format(new Date(message.created_at), 'HH:mm')}</span>
+        <div className={cn("text-[11px] mt-1 flex items-center justify-end gap-1", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
+            <span className="opacity-70">{format(new Date(message.created_at), 'HH:mm')}</span>
             {isMe && (
-                <span className="flex items-center" title={message.read_at ? 'Прочитано' : 'Отправлено'}>
+                <span className="flex items-center ml-1" title={message.read_at ? 'Прочитано' : 'Отправлено'}>
                     {message.read_at ? (
-                        <CheckCheck className="w-3 h-3 text-green-500" />
+                        <CheckCheck className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
                     ) : (
-                        <Check className="w-3 h-3 text-green-600" />
+                        <Check className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
                     )}
                 </span>
-            )}
-            {!isMe && message.read_at && (
-                <span className="text-[9px] opacity-50">✓ Прочитано</span>
             )}
         </div>
       </div>

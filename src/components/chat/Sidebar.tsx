@@ -107,16 +107,66 @@ export function Sidebar() {
         }
     }
 
+  // Play notification sound
+  const playNotificationSound = () => {
+    try {
+      // Create a simple beep sound using Web Audio API
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
+      const oscillator = audioContext.createOscillator()
+      const gainNode = audioContext.createGain()
+      
+      oscillator.connect(gainNode)
+      gainNode.connect(audioContext.destination)
+      
+      oscillator.frequency.value = 800
+      oscillator.type = 'sine'
+      
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime)
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3)
+      
+      oscillator.start(audioContext.currentTime)
+      oscillator.stop(audioContext.currentTime + 0.3)
+    } catch (e) {
+      console.error('Error playing notification sound:', e)
+    }
+  }
+
   useEffect(() => {
     if (!user) return
     fetchChats()
+
+    let currentChatId: string | null = null
+    // Get current chat ID from URL
+    if (typeof window !== 'undefined') {
+      const pathParts = window.location.pathname.split('/')
+      if (pathParts[1] === 'chat' && pathParts[2]) {
+        currentChatId = pathParts[2]
+      }
+    }
 
     const channel = supabase.channel('sidebar_chats')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_members', filter: `user_id=eq.${user.id}` }, () => {
             fetchChats()
         })
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
+        .on('postgres_changes', { 
+            event: 'INSERT', 
+            schema: 'public', 
+            table: 'messages' 
+        }, async (payload) => {
+            // Only play sound if message is not from current user and not in current chat
+            const message = payload.new as any
+            if (message.sender_id !== user.id && message.chat_id !== currentChatId) {
+                playNotificationSound()
+            }
             // Refresh when any new message arrives (RLS filters visibility)
+            fetchChats()
+        })
+        .on('postgres_changes', { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'messages' 
+        }, () => {
+            // Refresh when messages are updated (read status, etc.)
             fetchChats()
         })
         .subscribe()
@@ -415,18 +465,18 @@ export function Sidebar() {
                             <div 
                                 key={chat.id} 
                                 onContextMenu={(e) => handleContextMenu(e, chat.id)}
-                                className="p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 cursor-pointer border-b border-gray-100 dark:border-gray-800 transition-colors flex items-center gap-3 relative group"
+                                className="px-3 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-800/50 cursor-pointer border-b border-gray-100 dark:border-gray-800/50 transition-colors flex items-center gap-3 relative group"
                             >
                                 <div 
                                     onClick={() => router.push(`/chat/${chat.id}`)} 
                                     className="flex items-center gap-3 flex-1 min-w-0"
                                 >
                                     {/* Avatar */}
-                                    <div className="w-12 h-12 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gradient-to-br from-blue-400 to-indigo-500">
+                                    <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700">
                                         {avatarUrl ? (
                                             <img src={avatarUrl} className="w-full h-full object-cover" alt={displayName} />
                                         ) : (
-                                            <span className="text-white font-bold text-lg">
+                                            <span className="text-gray-600 dark:text-gray-300 font-semibold text-lg">
                                                 {displayName[0]?.toUpperCase() || '?'}
                                             </span>
                                         )}
@@ -434,20 +484,20 @@ export function Sidebar() {
                                     
                                     {/* Chat info */}
                                     <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between mb-1">
-                                            <div className="font-medium text-gray-900 dark:text-gray-100 truncate">
+                                        <div className="flex items-center justify-between mb-0.5">
+                                            <div className="font-medium text-gray-900 dark:text-gray-100 truncate text-[15px]">
                                                 {displayName}
                                             </div>
                                             {timeStr && (
-                                                <div className="text-xs text-gray-400 ml-2 shrink-0">{timeStr}</div>
+                                                <div className="text-xs text-gray-500 dark:text-gray-400 ml-2 shrink-0">{timeStr}</div>
                                             )}
                                         </div>
-                                        <div className="flex items-center justify-between">
+                                        <div className="flex items-center justify-between gap-2">
                                             <div className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
                                                 {lastMsgPreview}
                                             </div>
                                             {unreadCount > 0 && (
-                                                <div className="ml-2 bg-blue-500 text-white text-xs font-bold rounded-full px-2 py-0.5 min-w-[20px] text-center shrink-0">
+                                                <div className="bg-blue-500 text-white text-xs font-semibold rounded-full px-1.5 py-0.5 min-w-[18px] h-[18px] text-center shrink-0 flex items-center justify-center">
                                                     {unreadCount > 99 ? '99+' : unreadCount}
                                                 </div>
                                             )}
