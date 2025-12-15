@@ -482,7 +482,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     <div className="relative -mt-12 mb-4">
                         <div className="w-24 h-24 rounded-full border-4 border-white dark:border-gray-900 overflow-hidden bg-gray-200 flex items-center justify-center">
                             {otherUser?.avatar_url ? (
-                                <img src={otherUser.avatar_url} className="w-full h-full object-cover" alt={otherUser.username} />
+                                <img src={otherUser.avatar_url} className="w-full h-full object-cover" alt={otherUser.username || 'User'} />
                             ) : (
                                 <span className="text-2xl font-bold text-gray-500">
                                     {(chat?.type === 'dm' ? (otherUser?.username?.[0] || otherUser?.full_name?.[0]) : (chat?.name?.[0])) || '?'}

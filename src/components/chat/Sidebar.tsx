@@ -113,7 +113,7 @@ export function Sidebar() {
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_members', filter: `user_id=eq.${user.id}` }, () => {
             fetchChats()
         })
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
             // Refresh when any new message arrives (RLS filters visibility)
             fetchChats()
         })
