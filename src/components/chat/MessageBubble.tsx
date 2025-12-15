@@ -112,15 +112,19 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
 
   return (
     <div className={cn("flex w-full mb-0.5 group items-end gap-2", isMe ? "justify-end" : "justify-start")}>
-      {/* Avatar for other user's messages */}
-      {!isMe && showAvatar && (
-        <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700">
-          {message.sender?.avatar_url ? (
-            <img src={message.sender.avatar_url} className="w-full h-full object-cover" alt={message.sender.full_name || message.sender.username || 'User'} />
-          ) : (
-            <span className="text-gray-600 dark:text-gray-300 font-semibold text-sm">
-              {(message.sender?.full_name?.[0] || message.sender?.username?.[0] || '?').toUpperCase()}
-            </span>
+      {/* Avatar for other user's messages - or empty space to align messages */}
+      {!isMe && (
+        <div className="w-8 h-8 shrink-0">
+          {showAvatar && (
+            <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden bg-gray-200 dark:bg-gray-700">
+              {message.sender?.avatar_url ? (
+                <img src={message.sender.avatar_url} className="w-full h-full object-cover" alt={message.sender.full_name || message.sender.username || 'User'} />
+              ) : (
+                <span className="text-gray-600 dark:text-gray-300 font-semibold text-sm">
+                  {(message.sender?.full_name?.[0] || message.sender?.username?.[0] || '?').toUpperCase()}
+                </span>
+              )}
+            </div>
           )}
         </div>
       )}
