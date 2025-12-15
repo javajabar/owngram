@@ -73,22 +73,47 @@ export default function LoginPage() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault()
+    e.stopPropagation()
+    console.log('Form submitted, isLogin:', isLogin)
     setLoading(true)
     setError(null)
 
     try {
       if (isLogin) {
         // --- LOGIN ---
+        console.log('Attempting login for:', email)
         const loginPromise = supabase.auth.signInWithPassword({ email, password })
         const timeoutPromise = new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Request timeout. Check your internet connection.')), 10000)
         )
         
-        const { error } = await Promise.race([loginPromise, timeoutPromise]) as any
-        if (error) throw error
+        const { data, error } = await Promise.race([loginPromise, timeoutPromise]) as any
+        console.log('Login result:', { hasData: !!data, hasError: !!error, hasSession: !!data?.session })
         
-        // Use window.location for more reliable navigation
+        if (error) {
+          console.error('Login error:', error)
+          throw error
+        }
+        
+        if (!data?.session) {
+          // Wait a bit and check again
+          console.log('No session in response, checking again...')
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          const { data: { session } } = await supabase.auth.getSession()
+          console.log('Session check result:', { hasSession: !!session })
+          if (!session) {
+            throw new Error('Сессия не создана. Попробуйте снова.')
+          }
+        }
+        
+        console.log('Login successful, redirecting...')
+        // Clear any errors and redirect
+        setError(null)
+        setLoading(false)
+        
+        // Force navigation
         window.location.href = '/chat'
+        return // Prevent further execution
       } else {
         // --- REGISTRATION ---
         if (!username || !birthDate || !fullName) throw new Error('Заполните все поля')
@@ -151,6 +176,12 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       console.error('Auth error:', err)
+      console.error('Error details:', {
+        message: err.message,
+        status: err.status,
+        name: err.name
+      })
+      
       let errorMessage = 'Произошла ошибка. Проверьте подключение к интернету.'
       
       if (err.message?.includes('Invalid login credentials') || err.message?.includes('Invalid credentials')) {
@@ -159,6 +190,8 @@ export default function LoginPage() {
         errorMessage = 'Ошибка подключения. Проверьте интернет и попробуйте снова.'
       } else if (err.message?.includes('User already registered')) {
         errorMessage = 'Пользователь с таким email уже зарегистрирован. Войдите в аккаунт.'
+      } else if (err.message?.includes('Сессия не создана')) {
+        errorMessage = err.message
       } else if (err.message) {
         errorMessage = err.message
       }
