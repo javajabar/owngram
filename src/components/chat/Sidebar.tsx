@@ -16,6 +16,8 @@ export function Sidebar() {
   const [isSearching, setIsSearching] = useState(false)
   const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chatId: string } | null>(null)
+  const router = useRouter()
+  const { user, signOut } = useAuthStore()
 
   // Close menu when clicking outside
   useEffect(() => {
