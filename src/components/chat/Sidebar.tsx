@@ -94,13 +94,21 @@ export function Sidebar() {
                     // Count unread messages - only if not currently viewing this chat
                     let unreadCount = 0
                     const currentChatId = typeof window !== 'undefined' 
-                        ? window.location.pathname.split('/').pop() 
+                        ? (() => {
+                            const pathParts = window.location.pathname.split('/').filter(Boolean)
+                            // Path format: /chat/[id] or /chat
+                            if (pathParts[0] === 'chat' && pathParts[1]) {
+                                return pathParts[1]
+                            }
+                            return null
+                        })()
                         : null
                     
                     // If we're currently viewing this chat, unread count should be 0
                     if (currentChatId === chat.id) {
                         unreadCount = 0
                     } else {
+                        // Count messages from other users that haven't been read (read_at is null)
                         try {
                             const { count, error } = await supabase
                                 .from('messages')
@@ -109,25 +117,38 @@ export function Sidebar() {
                                 .neq('sender_id', user.id)
                                 .is('read_at', null)
                             
-                            if (error && error.message.includes('read_at')) {
-                                // If read_at column doesn't exist, count all messages from others
-                                const { count: allCount } = await supabase
-                                    .from('messages')
-                                    .select('*', { count: 'exact', head: true })
-                                    .eq('chat_id', chat.id)
-                                    .neq('sender_id', user.id)
-                                unreadCount = allCount || 0
+                            if (error) {
+                                // Check if error is about read_at column not existing
+                                if (error.message && (error.message.includes('read_at') || error.message.includes('column') || error.message.includes('does not exist'))) {
+                                    // If read_at column doesn't exist, count all messages from others as unread
+                                    // (fallback for older schemas)
+                                    const { count: allCount } = await supabase
+                                        .from('messages')
+                                        .select('*', { count: 'exact', head: true })
+                                        .eq('chat_id', chat.id)
+                                        .neq('sender_id', user.id)
+                                    unreadCount = allCount || 0
+                                } else {
+                                    console.error('Error counting unread messages:', error)
+                                    unreadCount = 0
+                                }
                             } else {
                                 unreadCount = count || 0
                             }
                         } catch (e) {
-                            // If read_at doesn't exist, just count all messages from others
-                            const { count } = await supabase
-                                .from('messages')
-                                .select('*', { count: 'exact', head: true })
-                                .eq('chat_id', chat.id)
-                                .neq('sender_id', user.id)
-                            unreadCount = count || 0
+                            // If read_at doesn't exist, try fallback: count all messages from others
+                            console.error('Exception counting unread messages:', e)
+                            try {
+                                const { count } = await supabase
+                                    .from('messages')
+                                    .select('*', { count: 'exact', head: true })
+                                    .eq('chat_id', chat.id)
+                                    .neq('sender_id', user.id)
+                                unreadCount = count || 0
+                            } catch (fallbackError) {
+                                console.error('Fallback count also failed:', fallbackError)
+                                unreadCount = 0
+                            }
                         }
                     }
                     
@@ -343,7 +364,18 @@ export function Sidebar() {
         }, async (payload) => {
             // Only play sound if message is not from current user and not in current chat
             const message = payload.new as any
-            if (message.sender_id !== user.id && message.chat_id !== currentChatId) {
+            // Get current chat ID dynamically
+            const currentPathChatId = typeof window !== 'undefined' 
+                ? (() => {
+                    const pathParts = window.location.pathname.split('/').filter(Boolean)
+                    if (pathParts[0] === 'chat' && pathParts[1]) {
+                        return pathParts[1]
+                    }
+                    return null
+                })()
+                : null
+            
+            if (message.sender_id !== user.id && message.chat_id !== currentPathChatId) {
                 playNotificationSound()
             }
             // Refresh when any new message arrives (RLS filters visibility)
