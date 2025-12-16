@@ -19,6 +19,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
   const { user } = useAuthStore()
   const isMe = user?.id === message.sender_id
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   
@@ -78,6 +79,51 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
     return `${mins}:${secs.toString().padStart(2, '0')}`
   }
 
+  // Recalculate menu position when context menu opens or window resizes
+  useEffect(() => {
+    if (!contextMenu) {
+      setMenuPosition(null)
+      return
+    }
+    
+    const calculatePosition = () => {
+      const menuWidth = 160 // min-w-[160px]
+      const menuHeight = 150 // approximate height
+      const padding = 10
+      
+      let x = contextMenu.x
+      let y = contextMenu.y
+      
+      // Check right edge - flip to left side of cursor
+      if (x + menuWidth + padding > window.innerWidth) {
+        x = contextMenu.x - menuWidth
+      }
+      
+      // Check left edge
+      if (x < padding) {
+        x = padding
+      }
+      
+      // Check bottom edge - flip to top side of cursor
+      if (y + menuHeight + padding > window.innerHeight) {
+        y = contextMenu.y - menuHeight
+      }
+      
+      // Check top edge
+      if (y < padding) {
+        y = padding
+      }
+      
+      setMenuPosition({ x, y })
+    }
+    
+    calculatePosition()
+    
+    // Recalculate on window resize
+    window.addEventListener('resize', calculatePosition)
+    return () => window.removeEventListener('resize', calculatePosition)
+  }, [contextMenu])
+
   // Close menu when clicking outside
   useEffect(() => {
     if (!contextMenu && !showDeleteConfirm) return
@@ -86,6 +132,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setContextMenu(null)
         setShowDeleteConfirm(false)
+        setMenuPosition(null)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -94,7 +141,38 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
 
   const handleContextMenu = (e: React.MouseEvent) => {
     e.preventDefault()
+    e.stopPropagation()
+    
+    // Calculate menu position with boundary checks
+    const menuWidth = 160 // min-w-[160px]
+    const menuHeight = 150 // approximate height (with 3 items)
+    const padding = 10 // padding from edges
+    
+    let x = e.clientX
+    let y = e.clientY
+    
+    // Check right edge - flip to left side of cursor
+    if (x + menuWidth + padding > window.innerWidth) {
+      x = e.clientX - menuWidth
+    }
+    
+    // Check left edge - if still out of bounds, align to left
+    if (x < padding) {
+      x = padding
+    }
+    
+    // Check bottom edge - flip to top side of cursor
+    if (y + menuHeight + padding > window.innerHeight) {
+      y = e.clientY - menuHeight
+    }
+    
+    // Check top edge - if still out of bounds, align to top
+    if (y < padding) {
+      y = padding
+    }
+    
     setContextMenu({ x: e.clientX, y: e.clientY })
+    setMenuPosition({ x, y })
   }
 
   const handleDelete = (deleteForAll: boolean) => {
@@ -153,13 +231,16 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         )}
 
         {/* Message Context Menu */}
-        {contextMenu && !showDeleteConfirm && (
+        {contextMenu && menuPosition && !showDeleteConfirm && (
           <div
             ref={menuRef}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
-            style={{ top: contextMenu.y, left: contextMenu.x }}
+            style={{ 
+              top: `${menuPosition.y}px`,
+              left: `${menuPosition.x}px`
+            }}
           >
             {onReply && (
               <button
@@ -203,13 +284,16 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         )}
 
         {/* Delete Confirmation */}
-        {showDeleteConfirm && (
+        {showDeleteConfirm && menuPosition && (
           <div
             ref={menuRef}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
             className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3 min-w-[200px]"
-            style={{ top: contextMenu?.y, left: contextMenu?.x }}
+            style={{ 
+              top: `${menuPosition.y}px`,
+              left: `${menuPosition.x}px`
+            }}
           >
             <div className="text-sm font-medium mb-2 text-gray-900 dark:text-white">Удалить сообщение?</div>
             <div className="space-y-1">

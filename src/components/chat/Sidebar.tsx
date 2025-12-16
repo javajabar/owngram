@@ -14,10 +14,11 @@ export function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [showNewChat, setShowNewChat] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
-  const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chatId: string } | null>(null)
-  const router = useRouter()
-  const { user, signOut } = useAuthStore()
+    const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
+    const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chatId: string } | null>(null)
+    const [savedMessagesChecked, setSavedMessagesChecked] = useState(false)
+    const router = useRouter()
+    const { user, signOut } = useAuthStore()
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -179,36 +180,93 @@ export function Sidebar() {
     if (!user) return
     
     try {
-      // Check if user already has a "Избранное" chat (DM with self)
-      const { data: existingChats } = await supabase
-        .from('chat_members')
-        .select('chat_id, chats!inner(type, name)')
-        .eq('user_id', user.id)
-        .eq('chats.type', 'dm')
+      // First, check if there's already a chat with name "Избранное"
+      const { data: existingSavedChats } = await supabase
+        .from('chats')
+        .select('id, chat_members!inner(user_id)')
+        .eq('name', 'Избранное')
+        .eq('type', 'dm')
       
-      if (existingChats) {
-        // Check if any of these chats is a self-chat (user is the only member)
-        for (const member of existingChats) {
+      if (existingSavedChats && existingSavedChats.length > 0) {
+        // Check if user is a member of any of these chats
+        for (const chat of existingSavedChats) {
           const { data: members } = await supabase
             .from('chat_members')
             .select('user_id')
-            .eq('chat_id', member.chat_id)
+            .eq('chat_id', chat.id)
           
-          // If only one member (self), this is the saved messages chat
+          // If user is the only member, this is their saved messages chat
           if (members && members.length === 1 && members[0].user_id === user.id) {
+            // Found existing saved messages chat
+            // If there are multiple, delete the extras (keep only the first one)
+            if (existingSavedChats.length > 1) {
+              const chatsToDelete = existingSavedChats.slice(1)
+              for (const chatToDelete of chatsToDelete) {
+                // Delete members first
+                await supabase
+                  .from('chat_members')
+                  .delete()
+                  .eq('chat_id', chatToDelete.id)
+                // Then delete chat
+                await supabase
+                  .from('chats')
+                  .delete()
+                  .eq('id', chatToDelete.id)
+              }
+            }
             return // Already exists
           }
         }
       }
       
-      // Create "Избранное" chat
+      // Also check for self-chats without name (legacy check)
+      const { data: allMyChats } = await supabase
+        .from('chat_members')
+        .select('chat_id, chats!inner(type)')
+        .eq('user_id', user.id)
+        .eq('chats.type', 'dm')
+      
+      if (allMyChats) {
+        for (const member of allMyChats) {
+          const { data: members } = await supabase
+            .from('chat_members')
+            .select('user_id')
+            .eq('chat_id', member.chat_id)
+          
+          // If only one member (self), this might be a saved messages chat
+          if (members && members.length === 1 && members[0].user_id === user.id) {
+            // Update it to have name "Избранное" if it doesn't have one
+            const { data: chatData } = await supabase
+              .from('chats')
+              .select('name')
+              .eq('id', member.chat_id)
+              .single()
+            
+            if (chatData && !chatData.name) {
+              await supabase
+                .from('chats')
+                .update({ name: 'Избранное' })
+                .eq('id', member.chat_id)
+            }
+            return // Found existing self-chat
+          }
+        }
+      }
+      
+      // Create "Избранное" chat only if none exists
       const { data: savedChat, error: chatError } = await supabase
         .from('chats')
         .insert({ type: 'dm', name: 'Избранное' })
         .select()
         .single()
       
-      if (chatError) throw chatError
+      if (chatError) {
+        // If error is about duplicate, that's okay - chat already exists
+        if (chatError.message.includes('duplicate') || chatError.message.includes('unique')) {
+          return
+        }
+        throw chatError
+      }
       if (!savedChat) return
       
       // Add user as member (only member = self-chat)
@@ -216,7 +274,13 @@ export function Sidebar() {
         .from('chat_members')
         .insert({ chat_id: savedChat.id, user_id: user.id })
       
-      if (memberError) throw memberError
+      if (memberError) {
+        // If member already exists, that's okay
+        if (memberError.message.includes('duplicate') || memberError.message.includes('unique')) {
+          return
+        }
+        throw memberError
+      }
     } catch (e) {
       console.error('Error creating saved messages chat:', e)
       // Don't show error to user, just log it
@@ -226,9 +290,15 @@ export function Sidebar() {
   useEffect(() => {
     if (!user) return
     
-    // Ensure "Избранное" chat exists
-    ensureSavedMessagesChat()
-    fetchChats()
+    // Ensure "Избранное" chat exists (only once)
+    if (!savedMessagesChecked) {
+      ensureSavedMessagesChat().then(() => {
+        setSavedMessagesChecked(true)
+        fetchChats()
+      })
+    } else {
+      fetchChats()
+    }
 
     let currentChatId: string | null = null
     // Get current chat ID from URL

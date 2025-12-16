@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Message, Profile, Chat } from '@/types'
 import { useAuthStore } from '@/store/useAuthStore'
-import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X, Play } from 'lucide-react'
+import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { MessageBubble } from './MessageBubble'
 
@@ -16,11 +16,6 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [isRecording, setIsRecording] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
-  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
-  const [recordingDuration, setRecordingDuration] = useState(0)
-  const [isPlayingPreview, setIsPlayingPreview] = useState(false)
-  const recordingDurationRef = useRef<NodeJS.Timeout | null>(null)
-  const audioPreviewRef = useRef<HTMLAudioElement | null>(null)
   const [unreadCount, setUnreadCount] = useState(0)
   const [isTyping, setIsTyping] = useState(false)
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
@@ -31,42 +26,30 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const { user } = useAuthStore()
   const router = useRouter()
   
-  // --- Native Audio Recording Logic with Hold-to-Record ---
+  // --- Native Audio Recording Logic ---
   const startRecording = async () => {
       try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
           const recorder = new MediaRecorder(stream)
           const chunks: BlobPart[] = []
-          let startTime = Date.now()
 
           recorder.ondataavailable = (e) => {
               if (e.data.size > 0) chunks.push(e.data)
           }
 
-          recorder.onstop = () => {
+          recorder.onstop = async () => {
               const blob = new Blob(chunks, { type: 'audio/webm' })
-              setRecordedBlob(blob)
+              await sendVoiceMessage(blob)
               // Stop all tracks
               stream.getTracks().forEach(track => track.stop())
-              // Stop duration counter
-              if (recordingDurationRef.current) {
-                  clearInterval(recordingDurationRef.current)
-                  recordingDurationRef.current = null
-              }
           }
 
           recorder.start()
           setMediaRecorder(recorder)
           setIsRecording(true)
-          setRecordingDuration(0)
-          
-          // Start duration counter
-          recordingDurationRef.current = setInterval(() => {
-              setRecordingDuration(prev => prev + 1)
-          }, 1000)
       } catch (err) {
           console.error('Mic error:', err)
-          alert('Не удалось получить доступ к микрофону')
+          alert('Could not access microphone')
       }
   }
 
@@ -77,50 +60,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       }
   }
 
-  const cancelRecording = () => {
-      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-          mediaRecorder.stop()
-      }
-      setRecordedBlob(null)
-      setRecordingDuration(0)
-      setIsRecording(false)
-      if (recordingDurationRef.current) {
-          clearInterval(recordingDurationRef.current)
-          recordingDurationRef.current = null
-      }
-  }
-
-  const playPreview = () => {
-      if (!recordedBlob) return
-      const url = URL.createObjectURL(recordedBlob)
-      const audio = new Audio(url)
-      audioPreviewRef.current = audio
-      setIsPlayingPreview(true)
-      
-      audio.onended = () => {
-          setIsPlayingPreview(false)
-          URL.revokeObjectURL(url)
-      }
-      
-      audio.onerror = () => {
-          setIsPlayingPreview(false)
-          URL.revokeObjectURL(url)
-      }
-      
-      audio.play()
-  }
-
-  const stopPreview = () => {
-      if (audioPreviewRef.current) {
-          audioPreviewRef.current.pause()
-          audioPreviewRef.current.currentTime = 0
-          audioPreviewRef.current = null
-      }
-      setIsPlayingPreview(false)
-  }
-
-  const sendVoiceMessage = async () => {
-      if (!user || !recordedBlob) return
+  const sendVoiceMessage = async (blob: Blob) => {
+      if (!user) return
       setIsUploading(true)
       
       try {
@@ -128,7 +69,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           const fileName = `voice-${Date.now()}.webm`
           const { error } = await supabase.storage
             .from('chat-attachments')
-            .upload(`${chatId}/${fileName}`, recordedBlob, { contentType: 'audio/webm' })
+            .upload(`${chatId}/${fileName}`, blob, { contentType: 'audio/webm' })
 
           if (error) throw error
 
@@ -144,14 +85,9 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             content: '🎤 Voice Message',
             attachments: [{ type: 'voice', url: publicUrl }]
           })
-          
-          // Clear preview
-          setRecordedBlob(null)
-          setRecordingDuration(0)
-          stopPreview()
       } catch (err) {
           console.error('Voice send error:', err)
-          alert('Ошибка при отправке голосового сообщения')
+          alert('Failed to send voice message')
       } finally {
           setIsUploading(false)
       }
@@ -265,6 +201,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         table: 'messages', 
         filter: `chat_id=eq.${chatId}` 
       }, async (payload) => {
+          console.log('New message received:', payload.new.id)
           // Skip deleted messages
           if (payload.new.deleted_at) return
           
@@ -282,7 +219,12 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           const newMsg = { ...payload.new, sender: senderData, reply_to: replyTo } as Message
           setMessages(prev => {
               // Deduplicate
-              if (prev.find(m => m.id === newMsg.id)) return prev
+              if (prev.find(m => m.id === newMsg.id)) {
+                console.log('Message already exists, skipping:', newMsg.id)
+                return prev
+              }
+              
+              console.log('Adding new message to list:', newMsg.id)
               
               // If I'm the sender, just update the existing optimistic message (if we had one) or add new
               // If I'm NOT the sender, mark as read immediately since I'm looking at the chat
@@ -292,6 +234,11 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                   setUnreadCount(0)
               }
               
+              // Scroll to bottom when new message arrives
+              setTimeout(() => {
+                messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+              }, 100)
+              
               return [...prev, newMsg]
           })
       })
@@ -300,26 +247,60 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         schema: 'public',
         table: 'messages',
         filter: `chat_id=eq.${chatId}`
-      }, (payload) => {
+      }, async (payload) => {
+          console.log('Message updated:', payload.new.id)
           // If message was deleted, remove it from the list
-          if (payload.new.deleted_at) {
+          if (payload.new.deleted_at && payload.new.deleted_for_all) {
             setMessages(prev => prev.filter(msg => msg.id !== payload.new.id))
           } else {
-            // Update message
-            setMessages(prev => prev.map(msg => 
-              msg.id === payload.new.id ? { ...msg, ...payload.new } : msg
-            ))
+            // Update message - fetch full data including sender
+            try {
+              const { data: updatedMessage } = await supabase
+                .from('messages')
+                .select('*, sender:profiles(*), reply_to:messages!messages_reply_to_id_fkey(*, sender:profiles(*))')
+                .eq('id', payload.new.id)
+                .single()
+              
+              if (updatedMessage) {
+                setMessages(prev => prev.map(msg => 
+                  msg.id === payload.new.id ? { ...msg, ...updatedMessage, reply_to: updatedMessage.reply_to || null } as Message : msg
+                ))
+              } else {
+                // Fallback: try simpler query
+                const { data: simpleMessage } = await supabase
+                  .from('messages')
+                  .select('*, sender:profiles(*)')
+                  .eq('id', payload.new.id)
+                  .single()
+                
+                if (simpleMessage) {
+                  setMessages(prev => prev.map(msg => 
+                    msg.id === payload.new.id ? { ...msg, ...simpleMessage, reply_to: null } as Message : msg
+                  ))
+                } else {
+                  // Last fallback: just update with payload data
+                  setMessages(prev => prev.map(msg => 
+                    msg.id === payload.new.id ? { ...msg, ...payload.new } : msg
+                  ))
+                }
+              }
+            } catch (error) {
+              console.error('Error updating message:', error)
+              // Fallback: just update with payload data
+              setMessages(prev => prev.map(msg => 
+                msg.id === payload.new.id ? { ...msg, ...payload.new } : msg
+              ))
+            }
           }
       })
       .on('postgres_changes', {
-        event: 'UPDATE',
+        event: 'DELETE',
         schema: 'public',
         table: 'messages',
         filter: `chat_id=eq.${chatId}`
       }, (payload) => {
-          setMessages(prev => prev.map(msg => 
-              msg.id === payload.new.id ? { ...msg, ...payload.new } : msg
-          ))
+          console.log('Message deleted:', payload.old.id)
+          setMessages(prev => prev.filter(msg => msg.id !== payload.old.id))
       })
       .on('broadcast', { event: 'typing' }, (payload) => {
           // Only show typing if it's from the other user
@@ -331,7 +312,12 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               }
           }
       })
-      .subscribe()
+      .subscribe((status) => {
+          console.log('Channel subscription status:', status)
+          if (status === 'SUBSCRIBED') {
+              console.log('Successfully subscribed to chat:', chatId)
+          }
+      })
 
     // Mark unread messages as read when entering chat
     const markAllAsRead = async () => {
@@ -374,13 +360,9 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             window.dispatchEvent(new CustomEvent('chatLeft', { detail: { chatId } }))
         }
         // Cleanup recording
-        if (recordingDurationRef.current) {
-            clearInterval(recordingDurationRef.current)
-        }
         if (mediaRecorder && mediaRecorder.state !== 'inactive') {
             mediaRecorder.stop()
         }
-        stopPreview()
     }
   }, [chatId, user])
 
@@ -708,71 +690,26 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     {editingMessage ? <span className="text-sm">✓</span> : <Send className="w-5 h-5" />}
                 </button>
             ) : (
-                <div className="relative flex items-center gap-2">
-                    {recordedBlob ? (
-                        // Preview mode - show recorded audio with play/delete/send options
-                        <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-full">
-                            <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
-                                {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
-                            </span>
-                            <button
-                                type="button"
-                                onClick={isPlayingPreview ? stopPreview : playPreview}
-                                className="p-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-all"
+                <div className="relative flex items-center">
+                    {isRecording ? (
+                        <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-full animate-pulse">
+                            <span className="text-xs text-red-500 font-bold">Recording...</span>
+                            <button 
+                                type="button" 
+                                onClick={stopRecording}
+                                className="p-3 bg-red-500 hover:bg-red-600 text-white rounded-full transition-all active:scale-95 shadow-md"
                             >
-                                {isPlayingPreview ? (
-                                    <Square className="w-3 h-3 fill-current" />
-                                ) : (
-                                    <Play className="w-3 h-3 fill-current ml-0.5" />
-                                )}
-                            </button>
-                            <button
-                                type="button"
-                                onClick={cancelRecording}
-                                className="p-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full transition-all"
-                            >
-                                <X className="w-3 h-3" />
-                            </button>
-                            <button
-                                type="button"
-                                onClick={sendVoiceMessage}
-                                disabled={isUploading}
-                                className="p-1.5 bg-green-500 hover:bg-green-600 text-white rounded-full transition-all disabled:opacity-50"
-                            >
-                                {isUploading ? (
-                                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                                ) : (
-                                    <Send className="w-3 h-3" />
-                                )}
+                                {isUploading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Square className="w-4 h-4 fill-current" />}
                             </button>
                         </div>
-                    ) : isRecording ? (
-                        // Recording mode
-                        <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-full animate-pulse">
-                            <span className="text-xs text-red-500 font-bold">
-                                {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
-                            </span>
-                            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-                        </div>
-                    ) : (
-                        // Idle mode - hold to record button
-                        <button 
-                            type="button" 
-                            onMouseDown={startRecording}
-                            onMouseUp={stopRecording}
-                            onMouseLeave={stopRecording}
-                            onTouchStart={(e) => {
-                                e.preventDefault()
-                                startRecording()
-                            }}
-                            onTouchEnd={(e) => {
-                                e.preventDefault()
-                                stopRecording()
-                            }}
-                            className="p-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 active:bg-red-100 dark:active:bg-red-900/20 text-gray-500 dark:text-gray-400 rounded-full transition-all duration-200 active:scale-110"
-                        >
-                            <Mic className="w-5 h-5" />
-                        </button>
+            ) : (
+                <button 
+                    type="button" 
+                            onClick={startRecording}
+                    className="p-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full transition-all active:scale-95"
+                >
+                    <Mic className="w-5 h-5" />
+                </button>
                     )}
                 </div>
             )}
