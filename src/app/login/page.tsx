@@ -5,18 +5,24 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/useAuthStore'
 
-type Step = 'email' | 'code'
-
 export default function LoginPage() {
   const [email, setEmail] = useState('')
-  const [code, setCode] = useState(['', '', '', '', '', ''])
-  const [step, setStep] = useState<Step>('email')
+  const [password, setPassword] = useState('')
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [success, setSuccess] = useState<string | null>(null)
-  const [countdown, setCountdown] = useState(0)
+  const [isSignUp, setIsSignUp] = useState(false)
+  const [username, setUsername] = useState('')
+  const [fullName, setFullName] = useState('')
   
-  const codeInputRefs = useRef<(HTMLInputElement | null)[]>([])
+  // OTP Modal state
+  const [showOtpModal, setShowOtpModal] = useState(false)
+  const [otpCode, setOtpCode] = useState(['', '', '', '', '', ''])
+  const [otpError, setOtpError] = useState<string | null>(null)
+  const [otpLoading, setOtpLoading] = useState(false)
+  const [countdown, setCountdown] = useState(0)
+  const [pendingEmail, setPendingEmail] = useState('')
+  
+  const otpInputRefs = useRef<(HTMLInputElement | null)[]>([])
   const router = useRouter()
   const { user, checkUser } = useAuthStore()
 
@@ -34,52 +40,68 @@ export default function LoginPage() {
     }
   }, [countdown])
 
-  // Handle sending OTP code
-  const handleSendCode = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
     setError(null)
-    setSuccess(null)
 
     try {
-      const { error } = await supabase.auth.signInWithOtp({
-        email,
-        options: {
-          shouldCreateUser: true,
-        }
-      })
+      if (isSignUp) {
+        // Send OTP code for registration
+        const { error: otpError } = await supabase.auth.signInWithOtp({
+          email,
+          options: {
+            shouldCreateUser: true,
+            data: {
+              username: username || email.split('@')[0],
+              full_name: fullName || '',
+            }
+          }
+        })
 
-      if (error) throw error
+        if (otpError) throw otpError
 
-      setStep('code')
-      setSuccess('Код отправлен на вашу почту')
-      setCountdown(60) // 60 seconds cooldown
-      
-      // Focus first code input
-      setTimeout(() => {
-        codeInputRefs.current[0]?.focus()
-      }, 100)
+        // Show OTP modal
+        setPendingEmail(email)
+        setShowOtpModal(true)
+        setCountdown(60)
+        setTimeout(() => {
+          otpInputRefs.current[0]?.focus()
+        }, 100)
+      } else {
+        // Sign in with password
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        })
+
+        if (signInError) throw signInError
+
+        document.cookie = 'justLoggedIn=true; path=/; max-age=60'
+        await checkUser()
+        router.push('/chat')
+      }
     } catch (err: any) {
-      setError(err.message || 'Ошибка отправки кода')
+      setError(err.message || 'Ошибка авторизации')
     } finally {
       setIsLoading(false)
     }
   }
 
-  // Handle verifying OTP code
-  const handleVerifyCode = async () => {
-    const fullCode = code.join('')
+  // Verify OTP code
+  const handleVerifyOtp = async () => {
+    const fullCode = otpCode.join('')
     if (fullCode.length !== 6) {
-      setError('Введите 6-значный код')
+      setOtpError('Введите 6-значный код')
       return
     }
 
-    setIsLoading(true)
-    setError(null)
+    setOtpLoading(true)
+    setOtpError(null)
 
     try {
       const { data, error } = await supabase.auth.verifyOtp({
-        email,
+        email: pendingEmail,
         token: fullCode,
         type: 'email',
       })
@@ -87,22 +109,20 @@ export default function LoginPage() {
       if (error) throw error
 
       if (data.user) {
-        // Check if profile exists, create if not
-        const { data: profile } = await supabase
+        // Create profile
+        const { error: profileError } = await supabase
           .from('profiles')
-          .select('id')
-          .eq('id', data.user.id)
-          .single()
+          .upsert({
+            id: data.user.id,
+            username: username || '@' + pendingEmail.split('@')[0],
+            full_name: fullName || pendingEmail.split('@')[0],
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'id'
+          })
 
-        if (!profile) {
-          await supabase
-            .from('profiles')
-            .insert({
-              id: data.user.id,
-              username: '@' + email.split('@')[0],
-              full_name: email.split('@')[0],
-              updated_at: new Date().toISOString()
-            })
+        if (profileError) {
+          console.error('Profile creation error:', profileError)
         }
 
         document.cookie = 'justLoggedIn=true; path=/; max-age=60'
@@ -110,76 +130,71 @@ export default function LoginPage() {
         router.push('/chat')
       }
     } catch (err: any) {
-      setError(err.message || 'Неверный код')
-      setCode(['', '', '', '', '', ''])
-      codeInputRefs.current[0]?.focus()
+      setOtpError(err.message || 'Неверный код')
+      setOtpCode(['', '', '', '', '', ''])
+      otpInputRefs.current[0]?.focus()
     } finally {
-      setIsLoading(false)
+      setOtpLoading(false)
     }
   }
 
-  // Handle code input change
-  const handleCodeChange = (index: number, value: string) => {
-    // Only allow numbers
+  // Handle OTP input change
+  const handleOtpChange = (index: number, value: string) => {
     if (value && !/^\d$/.test(value)) return
 
-    const newCode = [...code]
+    const newCode = [...otpCode]
     newCode[index] = value
-    setCode(newCode)
+    setOtpCode(newCode)
 
-    // Auto-focus next input
     if (value && index < 5) {
-      codeInputRefs.current[index + 1]?.focus()
+      otpInputRefs.current[index + 1]?.focus()
     }
 
-    // Auto-submit when all digits entered
     if (value && index === 5) {
       const fullCode = newCode.join('')
       if (fullCode.length === 6) {
-        setTimeout(() => handleVerifyCode(), 100)
+        setTimeout(() => handleVerifyOtp(), 100)
       }
     }
   }
 
-  // Handle backspace
-  const handleKeyDown = (index: number, e: React.KeyboardEvent) => {
-    if (e.key === 'Backspace' && !code[index] && index > 0) {
-      codeInputRefs.current[index - 1]?.focus()
+  const handleOtpKeyDown = (index: number, e: React.KeyboardEvent) => {
+    if (e.key === 'Backspace' && !otpCode[index] && index > 0) {
+      otpInputRefs.current[index - 1]?.focus()
+    }
+    if (e.key === 'Escape') {
+      setShowOtpModal(false)
     }
   }
 
-  // Handle paste
-  const handlePaste = (e: React.ClipboardEvent) => {
+  const handleOtpPaste = (e: React.ClipboardEvent) => {
     e.preventDefault()
     const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
     if (pastedData) {
-      const newCode = [...code]
+      const newCode = [...otpCode]
       for (let i = 0; i < 6; i++) {
         newCode[i] = pastedData[i] || ''
       }
-      setCode(newCode)
+      setOtpCode(newCode)
       
-      // Focus appropriate input
       const focusIndex = Math.min(pastedData.length, 5)
-      codeInputRefs.current[focusIndex]?.focus()
+      otpInputRefs.current[focusIndex]?.focus()
 
-      // Auto-submit if full code pasted
       if (pastedData.length === 6) {
-        setTimeout(() => handleVerifyCode(), 100)
+        setTimeout(() => handleVerifyOtp(), 100)
       }
     }
   }
 
-  // Resend code
-  const handleResend = async () => {
+  const handleResendOtp = async () => {
     if (countdown > 0) return
     
-    setIsLoading(true)
-    setError(null)
+    setOtpLoading(true)
+    setOtpError(null)
 
     try {
       const { error } = await supabase.auth.signInWithOtp({
-        email,
+        email: pendingEmail,
         options: {
           shouldCreateUser: true,
         }
@@ -187,14 +202,13 @@ export default function LoginPage() {
 
       if (error) throw error
 
-      setSuccess('Новый код отправлен')
       setCountdown(60)
-      setCode(['', '', '', '', '', ''])
-      codeInputRefs.current[0]?.focus()
+      setOtpCode(['', '', '', '', '', ''])
+      otpInputRefs.current[0]?.focus()
     } catch (err: any) {
-      setError(err.message || 'Ошибка отправки кода')
+      setOtpError(err.message || 'Ошибка отправки кода')
     } finally {
-      setIsLoading(false)
+      setOtpLoading(false)
     }
   }
 
@@ -204,23 +218,54 @@ export default function LoginPage() {
         <div className="text-center">
           <h1 className="text-4xl font-bold text-blue-600 mb-2">OwnGram</h1>
           <h2 className="text-2xl font-semibold text-gray-900 dark:text-white">
-            {step === 'email' ? 'Вход в аккаунт' : 'Введите код'}
+            {isSignUp ? 'Создать аккаунт' : 'Войти'}
           </h2>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-            {step === 'email' 
-              ? 'Введите email, мы отправим код подтверждения' 
-              : `Код отправлен на ${email}`}
+            {isSignUp 
+              ? 'Заполните форму для регистрации' 
+              : 'Введите данные для входа'}
           </p>
         </div>
 
-        {step === 'email' ? (
-          <form className="mt-8 space-y-6" onSubmit={handleSendCode}>
-            {error && (
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
-                {error}
-              </div>
-            )}
+        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+          {error && (
+            <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
 
+          <div className="space-y-4">
+            {isSignUp && (
+              <>
+                <div>
+                  <label htmlFor="fullName" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Имя
+                  </label>
+                  <input
+                    id="fullName"
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                    placeholder="Ваше имя"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                    Имя пользователя (необязательно)
+                  </label>
+                  <input
+                    id="username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                    placeholder="@username"
+                  />
+                </div>
+              </>
+            )}
+            
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Email
@@ -229,7 +274,6 @@ export default function LoginPage() {
                 id="email"
                 type="email"
                 required
-                autoFocus
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
@@ -237,58 +281,102 @@ export default function LoginPage() {
               />
             </div>
 
-            <button
-              type="submit"
-              disabled={isLoading || !email}
-              className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              {isLoading ? 'Отправка...' : 'Получить код'}
-            </button>
-          </form>
-        ) : (
-          <div className="mt-8 space-y-6">
-            {error && (
-              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
-                {error}
+            {!isSignUp && (
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Пароль
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                  placeholder="••••••••"
+                  minLength={6}
+                />
               </div>
             )}
+          </div>
 
-            {success && (
-              <div className="bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-600 dark:text-green-400 px-4 py-3 rounded-lg text-sm">
-                {success}
+          <div>
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {isLoading ? 'Загрузка...' : (isSignUp ? 'Зарегистрироваться' : 'Войти')}
+            </button>
+          </div>
+
+          <div className="text-center">
+            <button
+              type="button"
+              onClick={() => {
+                setIsSignUp(!isSignUp)
+                setError(null)
+              }}
+              className="text-sm text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
+            >
+              {isSignUp 
+                ? 'Уже есть аккаунт? Войти' 
+                : 'Нет аккаунта? Зарегистрироваться'}
+            </button>
+          </div>
+        </form>
+      </div>
+
+      {/* OTP Modal */}
+      {showOtpModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 px-4">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl p-6 w-full max-w-md shadow-xl">
+            <div className="text-center mb-6">
+              <h3 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
+                Подтверждение email
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                Введите 6-значный код, отправленный на<br />
+                <span className="font-medium text-gray-900 dark:text-white">{pendingEmail}</span>
+              </p>
+            </div>
+
+            {otpError && (
+              <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg text-sm mb-4">
+                {otpError}
               </div>
             )}
 
             {/* Code input boxes */}
-            <div className="flex justify-center gap-2" onPaste={handlePaste}>
-              {code.map((digit, index) => (
+            <div className="flex justify-center gap-2 mb-6" onPaste={handleOtpPaste}>
+              {otpCode.map((digit, index) => (
                 <input
                   key={index}
-                  ref={(el) => { codeInputRefs.current[index] = el }}
+                  ref={(el) => { otpInputRefs.current[index] = el }}
                   type="text"
                   inputMode="numeric"
                   maxLength={1}
                   value={digit}
-                  onChange={(e) => handleCodeChange(index, e.target.value)}
-                  onKeyDown={(e) => handleKeyDown(index, e)}
-                  className="w-12 h-14 text-center text-2xl font-bold border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                  onChange={(e) => handleOtpChange(index, e.target.value)}
+                  onKeyDown={(e) => handleOtpKeyDown(index, e)}
+                  className="w-12 h-14 text-center text-2xl font-bold border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
                 />
               ))}
             </div>
 
             <button
-              onClick={handleVerifyCode}
-              disabled={isLoading || code.join('').length !== 6}
-              className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              onClick={handleVerifyOtp}
+              disabled={otpLoading || otpCode.join('').length !== 6}
+              className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors mb-4"
             >
-              {isLoading ? 'Проверка...' : 'Подтвердить'}
+              {otpLoading ? 'Проверка...' : 'Подтвердить'}
             </button>
 
             <div className="flex flex-col items-center gap-3">
               <button
                 type="button"
-                onClick={handleResend}
-                disabled={countdown > 0 || isLoading}
+                onClick={handleResendOtp}
+                disabled={countdown > 0 || otpLoading}
                 className="text-sm text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {countdown > 0 
@@ -299,19 +387,18 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => {
-                  setStep('email')
-                  setCode(['', '', '', '', '', ''])
-                  setError(null)
-                  setSuccess(null)
+                  setShowOtpModal(false)
+                  setOtpCode(['', '', '', '', '', ''])
+                  setOtpError(null)
                 }}
                 className="text-sm text-gray-500 hover:text-gray-400"
               >
-                Изменить email
+                Отмена
               </button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }
