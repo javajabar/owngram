@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Message, Profile, Chat } from '@/types'
 import { useAuthStore } from '@/store/useAuthStore'
-import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X } from 'lucide-react'
+import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X, Play } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { MessageBubble } from './MessageBubble'
 
@@ -16,6 +16,11 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [isRecording, setIsRecording] = useState(false)
   const [isUploading, setIsUploading] = useState(false)
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null)
+  const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null)
+  const [recordingDuration, setRecordingDuration] = useState(0)
+  const [isPlayingPreview, setIsPlayingPreview] = useState(false)
+  const recordingDurationRef = useRef<NodeJS.Timeout | null>(null)
+  const audioPreviewRef = useRef<HTMLAudioElement | null>(null)
   const [unreadCount, setUnreadCount] = useState(0)
   const [isTyping, setIsTyping] = useState(false)
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
@@ -26,30 +31,42 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const { user } = useAuthStore()
   const router = useRouter()
   
-  // --- Native Audio Recording Logic ---
+  // --- Native Audio Recording Logic with Hold-to-Record ---
   const startRecording = async () => {
       try {
           const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
           const recorder = new MediaRecorder(stream)
           const chunks: BlobPart[] = []
+          let startTime = Date.now()
 
           recorder.ondataavailable = (e) => {
               if (e.data.size > 0) chunks.push(e.data)
           }
 
-          recorder.onstop = async () => {
+          recorder.onstop = () => {
               const blob = new Blob(chunks, { type: 'audio/webm' })
-              await sendVoiceMessage(blob)
+              setRecordedBlob(blob)
               // Stop all tracks
               stream.getTracks().forEach(track => track.stop())
+              // Stop duration counter
+              if (recordingDurationRef.current) {
+                  clearInterval(recordingDurationRef.current)
+                  recordingDurationRef.current = null
+              }
           }
 
           recorder.start()
           setMediaRecorder(recorder)
           setIsRecording(true)
+          setRecordingDuration(0)
+          
+          // Start duration counter
+          recordingDurationRef.current = setInterval(() => {
+              setRecordingDuration(prev => prev + 1)
+          }, 1000)
       } catch (err) {
           console.error('Mic error:', err)
-          alert('Could not access microphone')
+          alert('Не удалось получить доступ к микрофону')
       }
   }
 
@@ -60,8 +77,50 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       }
   }
 
-  const sendVoiceMessage = async (blob: Blob) => {
-      if (!user) return
+  const cancelRecording = () => {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          mediaRecorder.stop()
+      }
+      setRecordedBlob(null)
+      setRecordingDuration(0)
+      setIsRecording(false)
+      if (recordingDurationRef.current) {
+          clearInterval(recordingDurationRef.current)
+          recordingDurationRef.current = null
+      }
+  }
+
+  const playPreview = () => {
+      if (!recordedBlob) return
+      const url = URL.createObjectURL(recordedBlob)
+      const audio = new Audio(url)
+      audioPreviewRef.current = audio
+      setIsPlayingPreview(true)
+      
+      audio.onended = () => {
+          setIsPlayingPreview(false)
+          URL.revokeObjectURL(url)
+      }
+      
+      audio.onerror = () => {
+          setIsPlayingPreview(false)
+          URL.revokeObjectURL(url)
+      }
+      
+      audio.play()
+  }
+
+  const stopPreview = () => {
+      if (audioPreviewRef.current) {
+          audioPreviewRef.current.pause()
+          audioPreviewRef.current.currentTime = 0
+          audioPreviewRef.current = null
+      }
+      setIsPlayingPreview(false)
+  }
+
+  const sendVoiceMessage = async () => {
+      if (!user || !recordedBlob) return
       setIsUploading(true)
       
       try {
@@ -69,7 +128,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           const fileName = `voice-${Date.now()}.webm`
           const { error } = await supabase.storage
             .from('chat-attachments')
-            .upload(`${chatId}/${fileName}`, blob, { contentType: 'audio/webm' })
+            .upload(`${chatId}/${fileName}`, recordedBlob, { contentType: 'audio/webm' })
 
           if (error) throw error
 
@@ -85,9 +144,14 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             content: '🎤 Voice Message',
             attachments: [{ type: 'voice', url: publicUrl }]
           })
+          
+          // Clear preview
+          setRecordedBlob(null)
+          setRecordingDuration(0)
+          stopPreview()
       } catch (err) {
           console.error('Voice send error:', err)
-          alert('Failed to send voice message')
+          alert('Ошибка при отправке голосового сообщения')
       } finally {
           setIsUploading(false)
       }
@@ -110,15 +174,27 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       .then(({ data }) => {
           if (data) {
               setChat(data as Chat)
-              // If DM, fetch other user
+              // If DM, fetch other user (or self for "Избранное")
               if (data.type === 'dm') {
                   supabase.from('chat_members')
                     .select('user_id, profiles(*)')
                     .eq('chat_id', chatId)
                     .neq('user_id', user.id)
-                    .single()
+                    .maybeSingle()
                     .then(({ data: memberData }) => {
-                        if (memberData?.profiles) setOtherUser(memberData.profiles as unknown as Profile)
+                        if (memberData?.profiles) {
+                            setOtherUser(memberData.profiles as unknown as Profile)
+                        } else {
+                            // If no other user found, this might be "Избранное" (self-chat)
+                            // Set otherUser to current user
+                            supabase.from('profiles')
+                                .select('*')
+                                .eq('id', user.id)
+                                .single()
+                                .then(({ data: selfProfile }) => {
+                                    if (selfProfile) setOtherUser(selfProfile as Profile)
+                                })
+                        }
                     })
               }
           }
@@ -212,6 +288,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               // If I'm NOT the sender, mark as read immediately since I'm looking at the chat
               if (newMsg.sender_id !== user.id) {
                   markAsRead(newMsg.id)
+                  // Keep unread count at 0 since we're viewing the chat
+                  setUnreadCount(0)
               }
               
               return [...prev, newMsg]
@@ -270,7 +348,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             } else {
                 // If update succeeded, immediately set unread count to 0
                 setUnreadCount(0)
-                // Also trigger sidebar refresh
+                // Also trigger sidebar refresh to update unread count
                 if (typeof window !== 'undefined') {
                     window.dispatchEvent(new CustomEvent('chatRead', { detail: { chatId } }))
                 }
@@ -280,56 +358,29 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             console.log('read_at column might not exist, skipping mark as read')
         }
         
-        // Update unread count - try with read_at check, fallback to all unread
-        try {
-            const { count, error: countError } = await supabase
-                .from('messages')
-                .select('*', { count: 'exact', head: true })
-                .eq('chat_id', chatId)
-                .neq('sender_id', user.id)
-                .is('read_at', null)
-            
-            if (countError && countError.message.includes('read_at')) {
-                // If read_at doesn't exist, just set to 0 since we're in the chat
-                setUnreadCount(0)
-            } else {
-                setUnreadCount(count || 0)
-            }
-        } catch (e) {
-            setUnreadCount(0)
-        }
+        // Always set unread count to 0 when in chat (we're viewing it)
+        setUnreadCount(0)
     }
     markAllAsRead()
     
-    // Update unread count periodically
-    const updateUnreadCount = async () => {
-        try {
-            const { count, error } = await supabase
-                .from('messages')
-                .select('*', { count: 'exact', head: true })
-                .eq('chat_id', chatId)
-                .neq('sender_id', user.id)
-                .is('read_at', null)
-            
-            if (error && error.message.includes('read_at')) {
-                // If read_at doesn't exist, set to 0 since we're viewing the chat
-                setUnreadCount(0)
-            } else {
-                setUnreadCount(count || 0)
-            }
-        } catch (e) {
-            // Ignore errors, set to 0
-            setUnreadCount(0)
-        }
-    }
+    // Don't update unread count periodically when in chat - we're viewing it, so count should be 0
+    // Only update when we receive new messages in real-time
     
-    // Update unread count when messages change
-    const unreadInterval = setInterval(updateUnreadCount, 2000)
-    
-    // Cleanup on unmount
+    // Cleanup on unmount - trigger sidebar refresh when leaving chat
     return () => { 
         supabase.removeChannel(channel)
-        if (unreadInterval) clearInterval(unreadInterval)
+        // When leaving chat, trigger sidebar refresh to update unread counts
+        if (typeof window !== 'undefined') {
+            window.dispatchEvent(new CustomEvent('chatLeft', { detail: { chatId } }))
+        }
+        // Cleanup recording
+        if (recordingDurationRef.current) {
+            clearInterval(recordingDurationRef.current)
+        }
+        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+            mediaRecorder.stop()
+        }
+        stopPreview()
     }
   }, [chatId, user])
 
@@ -463,7 +514,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 <div className="flex items-center gap-2">
                     <div className="font-bold text-gray-900 dark:text-white truncate">
                         {chat?.type === 'dm' 
-                            ? (otherUser?.username || otherUser?.full_name || 'User')
+                            ? (chat?.name === 'Избранное' ? 'Избранное' : (otherUser?.full_name || 'User'))
                             : (chat?.name || 'Chat')
                         }
                     </div>
@@ -475,16 +526,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 </div>
                 <div className="text-xs text-gray-500 dark:text-gray-400 truncate">
                     {isTyping ? (
-                        <span className="text-blue-500 flex items-center gap-1">
+                        <span className="text-blue-500 flex items-center gap-1 transition-all duration-300">
                             <span>печатает</span>
                             <span className="flex gap-0.5">
-                                <span className="animate-bounce" style={{ animationDelay: '0ms' }}>.</span>
-                                <span className="animate-bounce" style={{ animationDelay: '150ms' }}>.</span>
-                                <span className="animate-bounce" style={{ animationDelay: '300ms' }}>.</span>
+                                <span className="animate-bounce" style={{ animationDelay: '0ms', animationDuration: '1.4s' }}>.</span>
+                                <span className="animate-bounce" style={{ animationDelay: '200ms', animationDuration: '1.4s' }}>.</span>
+                                <span className="animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1.4s' }}>.</span>
                             </span>
                         </span>
                     ) : (
-                        <span className="text-green-500">Online</span>
+                        <span className="text-green-500 transition-colors duration-300">Online</span>
                     )}
                 </div>
             </div>
@@ -580,10 +631,10 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     <div className="mb-6">
                         <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
                             {chat?.type === 'dm' 
-                                ? (otherUser?.full_name || otherUser?.username?.replace(/^@+/, '') || 'User') 
+                                ? (chat?.name === 'Избранное' ? 'Избранное' : (otherUser?.full_name || otherUser?.username?.replace(/^@+/, '') || 'User'))
                                 : chat?.name}
                         </h2>
-                        {chat?.type === 'dm' && otherUser?.username && (
+                        {chat?.type === 'dm' && chat?.name !== 'Избранное' && otherUser?.username && (
                             <p className="text-blue-500 text-sm">@{otherUser.username.replace(/^@+/, '')}</p>
                         )}
                         {chat?.type === 'dm' && otherUser?.status && (
@@ -657,26 +708,71 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     {editingMessage ? <span className="text-sm">✓</span> : <Send className="w-5 h-5" />}
                 </button>
             ) : (
-                <div className="relative flex items-center">
-                    {isRecording ? (
-                        <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-full animate-pulse">
-                            <span className="text-xs text-red-500 font-bold">Recording...</span>
-                            <button 
-                                type="button" 
-                                onClick={stopRecording}
-                                className="p-3 bg-red-500 hover:bg-red-600 text-white rounded-full transition-all active:scale-95 shadow-md"
+                <div className="relative flex items-center gap-2">
+                    {recordedBlob ? (
+                        // Preview mode - show recorded audio with play/delete/send options
+                        <div className="flex items-center gap-2 bg-blue-50 dark:bg-blue-900/20 px-3 py-2 rounded-full">
+                            <span className="text-xs text-blue-600 dark:text-blue-400 font-medium">
+                                {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
+                            </span>
+                            <button
+                                type="button"
+                                onClick={isPlayingPreview ? stopPreview : playPreview}
+                                className="p-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-all"
                             >
-                                {isUploading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Square className="w-4 h-4 fill-current" />}
+                                {isPlayingPreview ? (
+                                    <Square className="w-3 h-3 fill-current" />
+                                ) : (
+                                    <Play className="w-3 h-3 fill-current ml-0.5" />
+                                )}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={cancelRecording}
+                                className="p-1.5 bg-red-500 hover:bg-red-600 text-white rounded-full transition-all"
+                            >
+                                <X className="w-3 h-3" />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={sendVoiceMessage}
+                                disabled={isUploading}
+                                className="p-1.5 bg-green-500 hover:bg-green-600 text-white rounded-full transition-all disabled:opacity-50"
+                            >
+                                {isUploading ? (
+                                    <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                ) : (
+                                    <Send className="w-3 h-3" />
+                                )}
                             </button>
                         </div>
-            ) : (
-                <button 
-                    type="button" 
-                            onClick={startRecording}
-                    className="p-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full transition-all active:scale-95"
-                >
-                    <Mic className="w-5 h-5" />
-                </button>
+                    ) : isRecording ? (
+                        // Recording mode
+                        <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 px-3 py-2 rounded-full animate-pulse">
+                            <span className="text-xs text-red-500 font-bold">
+                                {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
+                            </span>
+                            <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                        </div>
+                    ) : (
+                        // Idle mode - hold to record button
+                        <button 
+                            type="button" 
+                            onMouseDown={startRecording}
+                            onMouseUp={stopRecording}
+                            onMouseLeave={stopRecording}
+                            onTouchStart={(e) => {
+                                e.preventDefault()
+                                startRecording()
+                            }}
+                            onTouchEnd={(e) => {
+                                e.preventDefault()
+                                stopRecording()
+                            }}
+                            className="p-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 active:bg-red-100 dark:active:bg-red-900/20 text-gray-500 dark:text-gray-400 rounded-full transition-all duration-200 active:scale-110"
+                        >
+                            <Mic className="w-5 h-5" />
+                        </button>
                     )}
                 </div>
             )}

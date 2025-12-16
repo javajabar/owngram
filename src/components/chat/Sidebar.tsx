@@ -65,7 +65,7 @@ export function Sidebar() {
                         .limit(1)
                     const lastMessage = lastMessageData && lastMessageData.length > 0 ? lastMessageData[0] : null
                     
-                    // For DM, get other user
+                    // For DM, get other user (or self for "Избранное")
                     let otherUser = null
                     if (chat.type === 'dm') {
                         const { data: otherMember } = await supabase
@@ -73,40 +73,61 @@ export function Sidebar() {
                             .select('profiles(*)')
                             .eq('chat_id', chat.id)
                             .neq('user_id', user.id)
-                            .single()
+                            .maybeSingle()
                         if (otherMember?.profiles) {
                             otherUser = otherMember.profiles
+                        } else {
+                            // If no other user, this is "Избранное" (self-chat)
+                            // Use current user's profile
+                            const { data: selfProfile } = await supabase
+                                .from('profiles')
+                                .select('*')
+                                .eq('id', user.id)
+                                .single()
+                            if (selfProfile) {
+                                otherUser = selfProfile
+                            }
                         }
                     }
                     
-                    // Count unread messages
+                    // Count unread messages - only if not currently viewing this chat
                     let unreadCount = 0
-                    try {
-                        const { count, error } = await supabase
-                            .from('messages')
-                            .select('*', { count: 'exact', head: true })
-                            .eq('chat_id', chat.id)
-                            .neq('sender_id', user.id)
-                        
-                        if (error && error.message.includes('read_at')) {
-                            // If read_at column doesn't exist, count all messages from others
-                            const { count: allCount } = await supabase
+                    const currentChatId = typeof window !== 'undefined' 
+                        ? window.location.pathname.split('/').pop() 
+                        : null
+                    
+                    // If we're currently viewing this chat, unread count should be 0
+                    if (currentChatId === chat.id) {
+                        unreadCount = 0
+                    } else {
+                        try {
+                            const { count, error } = await supabase
                                 .from('messages')
                                 .select('*', { count: 'exact', head: true })
                                 .eq('chat_id', chat.id)
                                 .neq('sender_id', user.id)
-                            unreadCount = allCount || 0
-                        } else {
+                                .is('read_at', null)
+                            
+                            if (error && error.message.includes('read_at')) {
+                                // If read_at column doesn't exist, count all messages from others
+                                const { count: allCount } = await supabase
+                                    .from('messages')
+                                    .select('*', { count: 'exact', head: true })
+                                    .eq('chat_id', chat.id)
+                                    .neq('sender_id', user.id)
+                                unreadCount = allCount || 0
+                            } else {
+                                unreadCount = count || 0
+                            }
+                        } catch (e) {
+                            // If read_at doesn't exist, just count all messages from others
+                            const { count } = await supabase
+                                .from('messages')
+                                .select('*', { count: 'exact', head: true })
+                                .eq('chat_id', chat.id)
+                                .neq('sender_id', user.id)
                             unreadCount = count || 0
                         }
-                    } catch (e) {
-                        // If read_at doesn't exist, just count all messages from others
-                        const { count } = await supabase
-                            .from('messages')
-                            .select('*', { count: 'exact', head: true })
-                            .eq('chat_id', chat.id)
-                            .neq('sender_id', user.id)
-                        unreadCount = count || 0
                     }
                     
                     return {
@@ -153,8 +174,60 @@ export function Sidebar() {
     }
   }
 
+  // Create "Избранное" (Saved Messages) chat for self
+  const ensureSavedMessagesChat = async () => {
+    if (!user) return
+    
+    try {
+      // Check if user already has a "Избранное" chat (DM with self)
+      const { data: existingChats } = await supabase
+        .from('chat_members')
+        .select('chat_id, chats!inner(type, name)')
+        .eq('user_id', user.id)
+        .eq('chats.type', 'dm')
+      
+      if (existingChats) {
+        // Check if any of these chats is a self-chat (user is the only member)
+        for (const member of existingChats) {
+          const { data: members } = await supabase
+            .from('chat_members')
+            .select('user_id')
+            .eq('chat_id', member.chat_id)
+          
+          // If only one member (self), this is the saved messages chat
+          if (members && members.length === 1 && members[0].user_id === user.id) {
+            return // Already exists
+          }
+        }
+      }
+      
+      // Create "Избранное" chat
+      const { data: savedChat, error: chatError } = await supabase
+        .from('chats')
+        .insert({ type: 'dm', name: 'Избранное' })
+        .select()
+        .single()
+      
+      if (chatError) throw chatError
+      if (!savedChat) return
+      
+      // Add user as member (only member = self-chat)
+      const { error: memberError } = await supabase
+        .from('chat_members')
+        .insert({ chat_id: savedChat.id, user_id: user.id })
+      
+      if (memberError) throw memberError
+    } catch (e) {
+      console.error('Error creating saved messages chat:', e)
+      // Don't show error to user, just log it
+    }
+  }
+
   useEffect(() => {
     if (!user) return
+    
+    // Ensure "Избранное" chat exists
+    ensureSavedMessagesChat()
     fetchChats()
 
     let currentChatId: string | null = null
@@ -165,17 +238,27 @@ export function Sidebar() {
         currentChatId = pathParts[2]
       }
       
-      // Listen for chat read events
+      // Listen for chat read and chat left events
       const handleChatRead = (event: CustomEvent) => {
         if (event.detail?.chatId) {
           // Refresh chats when a chat is marked as read
           fetchChats()
         }
       }
+      
+      const handleChatLeft = (event: CustomEvent) => {
+        if (event.detail?.chatId) {
+          // Refresh chats when leaving a chat to update unread counts
+          fetchChats()
+        }
+      }
+      
       window.addEventListener('chatRead', handleChatRead as EventListener)
+      window.addEventListener('chatLeft', handleChatLeft as EventListener)
       
       return () => {
         window.removeEventListener('chatRead', handleChatRead as EventListener)
+        window.removeEventListener('chatLeft', handleChatLeft as EventListener)
       }
     }
 
@@ -464,7 +547,7 @@ export function Sidebar() {
                 <div className="flex flex-col">
                     {chats.map((chat: any) => {
                         const displayName = chat.type === 'dm' 
-                            ? (chat.otherUser?.full_name || chat.otherUser?.username?.replace(/^@+/, '') || 'User')
+                            ? (chat.name === 'Избранное' ? 'Избранное' : (chat.otherUser?.full_name || chat.otherUser?.username?.replace(/^@+/, '') || 'User'))
                             : (chat.name || 'Chat')
                         const avatarUrl = chat.type === 'dm' ? chat.otherUser?.avatar_url : null
                         const lastMsg = chat.lastMessage

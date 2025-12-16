@@ -111,7 +111,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
   }
 
   return (
-    <div className={cn("flex w-full mb-0.5 group items-end gap-2", isMe ? "justify-end" : "justify-start")}>
+    <div className={cn("flex w-full mb-2 group items-end gap-2 transition-all duration-300 ease-in-out", isMe ? "justify-end" : "justify-start")}>
       {/* Avatar for other user's messages - or empty space to align messages */}
       {!isMe && (
         <div className="w-8 h-8 shrink-0">
@@ -132,13 +132,13 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
       <div 
         onContextMenu={handleContextMenu}
         className={cn(
-            "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex items-end gap-1.5",
+            "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out",
             message.deleted_at && message.deleted_for_all
                 ? "opacity-50 italic"
                 : "",
             isMe 
-                ? "bg-[#E7F3FF] dark:bg-[#2b5278] text-black dark:text-white rounded-2xl rounded-tr-sm" 
-                : "bg-white dark:bg-[#182533] text-black dark:text-white rounded-2xl rounded-tl-sm border border-gray-200 dark:border-gray-700"
+                ? "bg-[#E7F3FF] dark:bg-[#2b5278] text-black dark:text-white rounded-2xl rounded-tr-sm hover:shadow-md" 
+                : "bg-white dark:bg-[#182533] text-black dark:text-white rounded-2xl rounded-tl-sm border border-gray-200 dark:border-gray-700 hover:shadow-md"
         )}
       >
         {/* Reply Preview */}
@@ -156,12 +156,15 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         {contextMenu && !showDeleteConfirm && (
           <div
             ref={menuRef}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
             className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
             style={{ top: contextMenu.y, left: contextMenu.x }}
           >
             {onReply && (
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation()
                   onReply(message)
                   setContextMenu(null)
                 }}
@@ -173,7 +176,8 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
             )}
             {isMe && onEdit && !message.deleted_at && (
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation()
                   onEdit(message)
                   setContextMenu(null)
                 }}
@@ -185,7 +189,10 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
             )}
             {isMe && onDelete && (
               <button
-                onClick={() => setShowDeleteConfirm(true)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setShowDeleteConfirm(true)
+                }}
                 className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
               >
                 <Trash2 className="w-4 h-4" />
@@ -199,25 +206,34 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         {showDeleteConfirm && (
           <div
             ref={menuRef}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
             className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3 min-w-[200px]"
             style={{ top: contextMenu?.y, left: contextMenu?.x }}
           >
             <div className="text-sm font-medium mb-2 text-gray-900 dark:text-white">Удалить сообщение?</div>
             <div className="space-y-1">
               <button
-                onClick={() => handleDelete(false)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleDelete(false)
+                }}
                 className="w-full px-3 py-1.5 text-left text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
               >
                 Удалить для меня
               </button>
               <button
-                onClick={() => handleDelete(true)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  handleDelete(true)
+                }}
                 className="w-full px-3 py-1.5 text-left text-xs text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"
               >
                 Удалить для всех
               </button>
               <button
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation()
                   setShowDeleteConfirm(false)
                   setContextMenu(null)
                 }}
