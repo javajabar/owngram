@@ -67,3 +67,4 @@ CREATE INDEX IF NOT EXISTS idx_messages_delivered_at ON messages(delivered_at) W
 
 **Важно:** После выполнения SQL миграции всё заработает автоматически, код уже готов!
 
+
