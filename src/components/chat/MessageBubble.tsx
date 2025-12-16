@@ -368,10 +368,16 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         <div className={cn("text-[11px] flex items-center gap-0.5 shrink-0", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
             <span className="opacity-70 whitespace-nowrap">{format(new Date(message.created_at), 'HH:mm')}</span>
             {isMe && (
-                <span className="flex items-center gap-0.5" title={message.read_at ? 'Прочитано' : 'Доставлено'}>
-                    <Check className="w-3 h-3 text-gray-500 dark:text-gray-400" />
-                    {message.read_at && (
-                        <Check className="w-3 h-3 text-blue-500 dark:text-blue-400" />
+                <span className="flex items-center gap-0.5" title={message.read_at ? 'Прочитано' : message.delivered_at ? 'Доставлено' : 'Отправляется...'}>
+                    {message.delivered_at ? (
+                        <>
+                            <Check className="w-3 h-3 text-gray-500 dark:text-gray-400" />
+                            {message.read_at && (
+                                <Check className="w-3 h-3 text-blue-500 dark:text-blue-400" />
+                            )}
+                        </>
+                    ) : (
+                        <span className="w-3 h-3 text-gray-400">⏳</span>
                     )}
                 </span>
             )}

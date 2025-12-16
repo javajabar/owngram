@@ -83,7 +83,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             chat_id: chatId,
             sender_id: user.id,
             content: '🎤 Voice Message',
-            attachments: [{ type: 'voice', url: publicUrl }]
+            attachments: [{ type: 'voice', url: publicUrl }],
+            delivered_at: new Date().toISOString() // Голосовое сообщение доставлено (1 галочка)
           })
       } catch (err) {
           console.error('Voice send error:', err)
@@ -204,6 +205,11 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               // If I'm the sender, just update the existing optimistic message (if we had one) or add new
               // If I'm NOT the sender, mark as read immediately since I'm looking at the chat
               if (newMsg.sender_id !== user.id) {
+                  // Update delivered_at if not set (should be set by sender, but just in case)
+                  if (!newMsg.delivered_at) {
+                      newMsg.delivered_at = new Date().toISOString()
+                  }
+                  // Mark as read immediately
                   markAsRead(newMsg.id)
                   // Keep unread count at 0 since we're viewing the chat
                   setUnreadCount(0)
@@ -241,9 +247,14 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                   msg.id === payload.new.id ? { ...msg, ...updatedMessage, reply_to: null } as Message : msg
                 ))
               } else {
-                // Fallback: just update with payload data
+                // Fallback: update with payload data (includes read_at, delivered_at)
                 setMessages(prev => prev.map(msg => 
-                  msg.id === payload.new.id ? { ...msg, ...payload.new } : msg
+                  msg.id === payload.new.id ? { 
+                    ...msg, 
+                    ...payload.new,
+                    // Preserve sender if not in payload
+                    sender: payload.new.sender || msg.sender
+                  } as Message : msg
                 ))
               }
             } catch (error) {
@@ -281,44 +292,35 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           }
       })
 
-    // Mark unread messages as read when entering chat
+    // Mark all messages as read when entering chat
     const markAllAsRead = async () => {
         try {
-            // Fetch all messages from other users to check which are unread
-            const { data: allMessages, error: fetchError } = await supabase
+            // Update read_at for all messages from other users in this chat
+            const { error } = await supabase
                 .from('messages')
-                .select('id, read_at')
+                .update({ read_at: new Date().toISOString() })
                 .eq('chat_id', chatId)
                 .neq('sender_id', user.id)
+                .is('read_at', null)
             
-            if (fetchError) {
-                console.error('Error fetching messages to mark as read:', fetchError)
-            } else if (allMessages && allMessages.length > 0) {
-                // Filter to only messages where read_at is null or undefined
-                const unreadMessageIds = allMessages
-                    .filter(msg => msg.read_at === null || msg.read_at === undefined)
-                    .map(msg => msg.id)
-                
-                if (unreadMessageIds.length > 0) {
-                    // Update all unread messages
-                    const { error: updateError } = await supabase
-                        .from('messages')
-                        .update({ read_at: new Date().toISOString() })
-                        .in('id', unreadMessageIds)
-                    
-                    if (updateError) {
-                        console.error('Error marking messages as read:', updateError)
-                    } else {
-                        // If update succeeded, trigger sidebar refresh
-                        if (typeof window !== 'undefined') {
-                            window.dispatchEvent(new CustomEvent('chatRead', { detail: { chatId } }))
-                        }
+            if (error) {
+                console.error('Error marking messages as read:', error)
+            } else {
+                // Update local state to show 2 галочки immediately
+                setMessages(prev => prev.map(msg => {
+                    if (msg.chat_id === chatId && msg.sender_id !== user.id && !msg.read_at) {
+                        return { ...msg, read_at: new Date().toISOString() }
                     }
+                    return msg
+                }))
+                
+                // Trigger sidebar refresh
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('chatRead', { detail: { chatId } }))
                 }
             }
         } catch (e) {
-            // Column might not exist or other error, ignore
-            console.log('Error marking messages as read:', e)
+            console.error('Error marking messages as read:', e)
         }
         
         // Always set unread count to 0 when in chat (we're viewing it)
@@ -345,11 +347,17 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
   const markAsRead = async (messageId: string) => {
       try {
-          await supabase.from('messages')
-            .update({ read_at: new Date().toISOString() })
-            .eq('id', messageId)
+          await supabase
+              .from('messages')
+              .update({ read_at: new Date().toISOString() })
+              .eq('id', messageId)
+          
+          // Update local state immediately for instant UI feedback
+          setMessages(prev => prev.map(msg => 
+              msg.id === messageId ? { ...msg, read_at: new Date().toISOString() } : msg
+          ))
       } catch (e) {
-          // Column might not exist, ignore
+          // Ignore errors silently
       }
   }
 
@@ -389,7 +397,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       chat_id: chatId,
       sender_id: user.id,
       content: text,
-      reply_to_id: replyingTo?.id || null
+      reply_to_id: replyingTo?.id || null,
+      delivered_at: new Date().toISOString() // Сообщение доставлено сразу (1 галочка)
     })
 
     if (error) {

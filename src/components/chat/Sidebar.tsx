@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Profile, Chat } from '@/types'
 import { useRouter } from 'next/navigation'
@@ -17,6 +17,7 @@ export function Sidebar() {
     const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chatId: string } | null>(null)
     const [savedMessagesChecked, setSavedMessagesChecked] = useState(false)
+    const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const router = useRouter()
     const { user, signOut } = useAuthStore()
 
@@ -108,23 +109,20 @@ export function Sidebar() {
                     if (currentChatId === chat.id) {
                         unreadCount = 0
                     } else {
-                        // Count messages from other users that haven't been read (read_at is null)
-                        // We fetch all messages and filter on client side to avoid PostgREST syntax issues
+                        // Count messages from other users that haven't been read (read_at IS NULL)
                         try {
-                            const { data: allMessages, error } = await supabase
+                            const { count, error } = await supabase
                                 .from('messages')
-                                .select('id, read_at')
+                                .select('*', { count: 'exact', head: true })
                                 .eq('chat_id', chat.id)
                                 .neq('sender_id', user.id)
+                                .is('read_at', null)
                             
                             if (error) {
-                                console.error('Error fetching messages for unread count:', error)
+                                console.error('Error counting unread messages:', error)
                                 unreadCount = 0
                             } else {
-                                // Count messages where read_at is null or undefined
-                                unreadCount = allMessages?.filter(msg => 
-                                    msg.read_at === null || msg.read_at === undefined
-                                ).length || 0
+                                unreadCount = count || 0
                             }
                         } catch (e) {
                             console.error('Exception counting unread messages:', e)
@@ -358,20 +356,37 @@ export function Sidebar() {
             if (message.sender_id !== user.id && message.chat_id !== currentPathChatId) {
                 playNotificationSound()
             }
-            // Refresh when any new message arrives (RLS filters visibility)
-            fetchChats()
+            
+            // Debounce fetchChats to avoid too many requests when multiple messages arrive
+            if (fetchTimeoutRef.current) {
+                clearTimeout(fetchTimeoutRef.current)
+            }
+            fetchTimeoutRef.current = setTimeout(() => {
+                fetchChats()
+            }, 150) // Wait 150ms to batch updates (reduced for faster UI updates)
         })
         .on('postgres_changes', { 
             event: 'UPDATE', 
             schema: 'public', 
             table: 'messages' 
         }, () => {
-            // Refresh when messages are updated (read status, etc.)
-            fetchChats()
+            // Debounce fetchChats for updates too
+            if (fetchTimeoutRef.current) {
+                clearTimeout(fetchTimeoutRef.current)
+            }
+            fetchTimeoutRef.current = setTimeout(() => {
+                fetchChats()
+            }, 150)
         })
         .subscribe()
         
-    return () => { supabase.removeChannel(channel) }
+    return () => { 
+        supabase.removeChannel(channel)
+        // Clean up fetch timeout
+        if (fetchTimeoutRef.current) {
+            clearTimeout(fetchTimeoutRef.current)
+        }
+    }
   }, [user])
 
   // Search logic

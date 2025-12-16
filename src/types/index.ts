@@ -16,7 +16,8 @@ export interface Message {
   updated_at?: string | null
   attachments: any[] | null
   sender?: Profile
-  read_at?: string | null // Timestamp when message was read
+  delivered_at?: string | null // Timestamp when message was delivered (1 галочка)
+  read_at?: string | null // Timestamp when message was read (2 галочки)
   reply_to_id?: string | null // ID of message this is replying to
   reply_to?: Message | null // The message being replied to
   deleted_at?: string | null // Timestamp when message was deleted
