@@ -109,46 +109,26 @@ export function Sidebar() {
                         unreadCount = 0
                     } else {
                         // Count messages from other users that haven't been read (read_at is null)
+                        // We fetch all messages and filter on client side to avoid PostgREST syntax issues
                         try {
-                            const { count, error } = await supabase
+                            const { data: allMessages, error } = await supabase
                                 .from('messages')
-                                .select('*', { count: 'exact', head: true })
+                                .select('id, read_at')
                                 .eq('chat_id', chat.id)
                                 .neq('sender_id', user.id)
-                                .is('read_at', null)
                             
                             if (error) {
-                                // Check if error is about read_at column not existing
-                                if (error.message && (error.message.includes('read_at') || error.message.includes('column') || error.message.includes('does not exist'))) {
-                                    // If read_at column doesn't exist, count all messages from others as unread
-                                    // (fallback for older schemas)
-                                    const { count: allCount } = await supabase
-                                        .from('messages')
-                                        .select('*', { count: 'exact', head: true })
-                                        .eq('chat_id', chat.id)
-                                        .neq('sender_id', user.id)
-                                    unreadCount = allCount || 0
-                                } else {
-                                    console.error('Error counting unread messages:', error)
-                                    unreadCount = 0
-                                }
+                                console.error('Error fetching messages for unread count:', error)
+                                unreadCount = 0
                             } else {
-                                unreadCount = count || 0
+                                // Count messages where read_at is null or undefined
+                                unreadCount = allMessages?.filter(msg => 
+                                    msg.read_at === null || msg.read_at === undefined
+                                ).length || 0
                             }
                         } catch (e) {
-                            // If read_at doesn't exist, try fallback: count all messages from others
                             console.error('Exception counting unread messages:', e)
-                            try {
-                                const { count } = await supabase
-                                    .from('messages')
-                                    .select('*', { count: 'exact', head: true })
-                                    .eq('chat_id', chat.id)
-                                    .neq('sender_id', user.id)
-                                unreadCount = count || 0
-                            } catch (fallbackError) {
-                                console.error('Fallback count also failed:', fallbackError)
-                                unreadCount = 0
-                            }
+                            unreadCount = 0
                         }
                     }
                     

@@ -136,55 +136,30 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           }
       })
 
-    // Fetch Messages with replies
+    // Fetch Messages (use simple query to avoid foreign key relationship errors)
     supabase.from('messages')
-      .select('*, sender:profiles(*), reply_to:messages!messages_reply_to_id_fkey(*, sender:profiles(*))')
+      .select('*, sender:profiles(*)')
       .eq('chat_id', chatId)
       .order('created_at', { ascending: true })
       .then(({ data, error }) => {
         if (error) {
           console.error('Error fetching messages:', error)
-          // Try simpler query without reply_to if the foreign key doesn't exist
-          supabase.from('messages')
-            .select('*, sender:profiles(*)')
-            .eq('chat_id', chatId)
-            .order('created_at', { ascending: true })
-            .then(({ data: simpleData, error: simpleError }) => {
-              if (simpleError) {
-                console.error('Error with simple query:', simpleError)
-                setMessages([])
-                return
-              }
-              if (simpleData) {
-                const mappedMessages = simpleData
-                  .filter((msg: any) => {
-                    if (msg.deleted_at && msg.deleted_for_all) return false
-                    return true
-                  })
-                  .map((msg: any) => ({
-                    ...msg,
-                    reply_to: null
-                  })) as Message[]
-                console.log('Loaded messages (simple):', mappedMessages.length, 'for chat:', chatId)
-                setMessages(mappedMessages)
-              } else {
-                setMessages([])
-              }
-            })
+          setMessages([])
           return
         }
+        
         if (data) {
-          // Map messages and set reply_to, filter out messages deleted for all
+          // Filter out messages deleted for all and map messages
           const mappedMessages = data
             .filter((msg: any) => {
-              // Don't show messages deleted for all
               if (msg.deleted_at && msg.deleted_for_all) return false
               return true
             })
             .map((msg: any) => ({
               ...msg,
-              reply_to: msg.reply_to || null
+              reply_to: null // Reply functionality can be implemented separately if needed
             })) as Message[]
+          
           console.log('Loaded messages:', mappedMessages.length, 'for chat:', chatId)
           setMessages(mappedMessages)
         } else {
@@ -253,36 +228,23 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           if (payload.new.deleted_at && payload.new.deleted_for_all) {
             setMessages(prev => prev.filter(msg => msg.id !== payload.new.id))
           } else {
-            // Update message - fetch full data including sender
+            // Update message - fetch full data including sender (simple query without foreign key join)
             try {
               const { data: updatedMessage } = await supabase
                 .from('messages')
-                .select('*, sender:profiles(*), reply_to:messages!messages_reply_to_id_fkey(*, sender:profiles(*))')
+                .select('*, sender:profiles(*)')
                 .eq('id', payload.new.id)
                 .single()
               
               if (updatedMessage) {
                 setMessages(prev => prev.map(msg => 
-                  msg.id === payload.new.id ? { ...msg, ...updatedMessage, reply_to: updatedMessage.reply_to || null } as Message : msg
+                  msg.id === payload.new.id ? { ...msg, ...updatedMessage, reply_to: null } as Message : msg
                 ))
               } else {
-                // Fallback: try simpler query
-                const { data: simpleMessage } = await supabase
-                  .from('messages')
-                  .select('*, sender:profiles(*)')
-                  .eq('id', payload.new.id)
-                  .single()
-                
-                if (simpleMessage) {
-                  setMessages(prev => prev.map(msg => 
-                    msg.id === payload.new.id ? { ...msg, ...simpleMessage, reply_to: null } as Message : msg
-                  ))
-                } else {
-                  // Last fallback: just update with payload data
-                  setMessages(prev => prev.map(msg => 
-                    msg.id === payload.new.id ? { ...msg, ...payload.new } : msg
-                  ))
-                }
+                // Fallback: just update with payload data
+                setMessages(prev => prev.map(msg => 
+                  msg.id === payload.new.id ? { ...msg, ...payload.new } : msg
+                ))
               }
             } catch (error) {
               console.error('Error updating message:', error)
@@ -322,26 +284,41 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     // Mark unread messages as read when entering chat
     const markAllAsRead = async () => {
         try {
-            // Try to update read_at if the column exists
-            const { error: updateError } = await supabase.from('messages')
-                .update({ read_at: new Date().toISOString() })
+            // Fetch all messages from other users to check which are unread
+            const { data: allMessages, error: fetchError } = await supabase
+                .from('messages')
+                .select('id, read_at')
                 .eq('chat_id', chatId)
                 .neq('sender_id', user.id)
-                .is('read_at', null)
             
-            if (updateError && !updateError.message.includes('column') && !updateError.message.includes('does not exist')) {
-                console.error('Error marking messages as read:', updateError)
-            } else {
-                // If update succeeded, immediately set unread count to 0
-                setUnreadCount(0)
-                // Also trigger sidebar refresh to update unread count
-                if (typeof window !== 'undefined') {
-                    window.dispatchEvent(new CustomEvent('chatRead', { detail: { chatId } }))
+            if (fetchError) {
+                console.error('Error fetching messages to mark as read:', fetchError)
+            } else if (allMessages && allMessages.length > 0) {
+                // Filter to only messages where read_at is null or undefined
+                const unreadMessageIds = allMessages
+                    .filter(msg => msg.read_at === null || msg.read_at === undefined)
+                    .map(msg => msg.id)
+                
+                if (unreadMessageIds.length > 0) {
+                    // Update all unread messages
+                    const { error: updateError } = await supabase
+                        .from('messages')
+                        .update({ read_at: new Date().toISOString() })
+                        .in('id', unreadMessageIds)
+                    
+                    if (updateError) {
+                        console.error('Error marking messages as read:', updateError)
+                    } else {
+                        // If update succeeded, trigger sidebar refresh
+                        if (typeof window !== 'undefined') {
+                            window.dispatchEvent(new CustomEvent('chatRead', { detail: { chatId } }))
+                        }
+                    }
                 }
             }
         } catch (e) {
-            // Column might not exist, ignore
-            console.log('read_at column might not exist, skipping mark as read')
+            // Column might not exist or other error, ignore
+            console.log('Error marking messages as read:', e)
         }
         
         // Always set unread count to 0 when in chat (we're viewing it)
