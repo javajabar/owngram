@@ -895,6 +895,68 @@ export function Sidebar() {
       }
   }
 
+  const fetchAvailableUsers = async () => {
+    if (!user) return
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .neq('id', user.id)
+        .limit(50)
+      
+      if (error) throw error
+      setAvailableUsers(data || [])
+    } catch (error) {
+      console.error('Error fetching users:', error)
+    }
+  }
+
+  const createGroup = async () => {
+    if (!user || !groupName.trim() || selectedUsers.length === 0) {
+      alert('Введите название группы и выберите участников')
+      return
+    }
+
+    try {
+      // Create group chat
+      const { data: chatData, error: chatError } = await supabase
+        .from('chats')
+        .insert({
+          type: 'group',
+          name: groupName.trim(),
+          created_at: new Date().toISOString()
+        })
+        .select()
+        .single()
+
+      if (chatError) throw chatError
+
+      // Add current user and selected users to group
+      const members = [
+        { chat_id: chatData.id, user_id: user.id, created_at: new Date().toISOString() },
+        ...selectedUsers.map(userId => ({
+          chat_id: chatData.id,
+          user_id: userId,
+          created_at: new Date().toISOString()
+        }))
+      ]
+
+      const { error: membersError } = await supabase
+        .from('chat_members')
+        .insert(members)
+
+      if (membersError) throw membersError
+
+      setShowCreateGroup(false)
+      setGroupName('')
+      setSelectedUsers([])
+      router.push(`/chat/${chatData.id}`)
+    } catch (error: any) {
+      console.error('Error creating group:', error)
+      alert(`Ошибка при создании группы: ${error.message || 'Неизвестная ошибка'}`)
+    }
+  }
+
   return (
     <div className="w-full md:w-80 flex flex-col h-full bg-[#0E1621] dark:bg-[#0E1621] border-r border-gray-800 dark:border-gray-800 overflow-y-auto">
       <div className="p-4 border-b border-gray-800 dark:border-gray-800 flex justify-between items-center bg-[#17212B] dark:bg-[#17212B]">
@@ -912,6 +974,16 @@ export function Sidebar() {
                         {myProfile?.username?.[1]?.toUpperCase() || <UserIcon className="w-5 h-5" />}
                     </div>
                 )}
+            </button>
+            <button 
+                onClick={() => {
+                  setShowCreateGroup(true)
+                  fetchAvailableUsers()
+                }}
+                className="w-10 h-10 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-colors"
+                title="Create Group"
+            >
+                <Plus className="w-5 h-5" />
             </button>
         </div>
       </div>
