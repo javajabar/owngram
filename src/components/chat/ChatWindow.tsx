@@ -621,12 +621,29 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         },
         async (payload) => {
           const signal = payload.new as any
+          
+          // Convert to strings for reliable comparison
+          const signalTo = String(signal.to_user_id || '').trim()
+          const signalFrom = String(signal.from_user_id || '').trim()
+          const currentUserStr = String(currentUserId || '').trim()
+          const otherUserStr = otherUser?.id ? String(otherUser.id).trim() : ''
+          
           console.log('📞 Call signal received:', {
             type: signal.signal_type,
-            from: signal.from_user_id,
-            to: signal.to_user_id,
-            currentUser: currentUserId,
-            isForMe: signal.to_user_id === currentUserId
+            from: signalFrom,
+            to: signalTo,
+            currentUser: currentUserStr,
+            otherUser: otherUserStr,
+            rawFrom: signal.from_user_id,
+            rawTo: signal.to_user_id,
+            rawCurrentUser: currentUserId,
+            isForMe: signalTo === currentUserStr,
+            comparison: {
+              toEqualsCurrent: signalTo === currentUserStr,
+              fromEqualsOther: signalFrom === otherUserStr,
+              typesMatch: typeof signalTo === typeof currentUserStr,
+              lengths: { to: signalTo.length, current: currentUserStr.length }
+            }
           })
           
           // Check if this signal is for current user
@@ -634,16 +651,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           // For call-accept: from_user_id should be otherUser (they accepted our call) OR we need to check if we're calling
           // For call-reject/call-end: either direction
           // For WebRTC signals (offer, answer, ice-candidate): pass to WebRTCHandler if we have one
-          const isCallRequestForMe = signal.signal_type === 'call-request' && signal.to_user_id === currentUserId
+          const isCallRequestForMe = signal.signal_type === 'call-request' && signalTo === currentUserStr
           const isCallAcceptForMe = signal.signal_type === 'call-accept' && 
-            ((signal.from_user_id === otherUser?.id && signal.to_user_id === currentUserId) || isCalling)
+            ((signalFrom === otherUserStr && signalTo === currentUserStr) || isCalling)
           const isCallRejectForMe = (signal.signal_type === 'call-reject' || signal.signal_type === 'call-end') && 
-            (signal.to_user_id === currentUserId || signal.from_user_id === otherUser?.id || isCalling || incomingCall)
+            (signalTo === currentUserStr || signalFrom === otherUserStr || isCalling || incomingCall)
           
           // WebRTC signals (offer, answer, ice-candidate) should be passed to WebRTCHandler
           const isWebRTCSignal = (signal.signal_type === 'offer' || signal.signal_type === 'answer' || signal.signal_type === 'ice-candidate') &&
             webrtcHandlerRef.current &&
-            (signal.from_user_id === otherUser?.id || signal.to_user_id === currentUserId)
+            (signalFrom === otherUserStr || signalTo === currentUserStr)
           
           if (isCallRequestForMe || isCallAcceptForMe || isCallRejectForMe || isWebRTCSignal) {
             console.log('✅ Signal is for me! Processing...', { 
@@ -655,27 +672,35 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               incomingCall
             })
             if (signal.signal_type === 'call-request') {
-              console.log('📞 Incoming call request from:', signal.from_user_id)
+              console.log('📞 Incoming call request from:', signalFrom)
+              console.log('🔍 Processing call request - setting incomingCall to true')
+              
               // Fetch other user info if not available
-              if (!otherUser || otherUser.id !== signal.from_user_id) {
-                console.log('📥 Fetching caller profile...')
+              if (!otherUser || String(otherUser.id).trim() !== signalFrom) {
+                console.log('📥 Fetching caller profile for:', signalFrom)
                 supabase.from('profiles')
                   .select('*')
                   .eq('id', signal.from_user_id)
                   .single()
                   .then(({ data, error }) => {
                     if (error) {
-                      console.error('Error fetching caller profile:', error)
+                      console.error('❌ Error fetching caller profile:', error)
                     } else if (data) {
                       console.log('✅ Caller profile loaded:', data)
                       setOtherUser(data as Profile)
+                      // Set incoming call after profile is loaded
+                      console.log('🔔 Setting incoming call state after profile load...')
+                      setIncomingCall(true)
+                      soundManager.startCallRinging()
                     }
                   })
+              } else {
+                // Profile already available, set incoming call immediately
+                console.log('🔔 Setting incoming call state immediately (profile exists)...')
+                setIncomingCall(true)
+                // Start ringing sound (will repeat until answered/rejected)
+                soundManager.startCallRinging()
               }
-              console.log('🔔 Setting incoming call state...')
-              setIncomingCall(true)
-              // Start ringing sound (will repeat until answered/rejected)
-              soundManager.startCallRinging()
             } else if (signal.signal_type === 'call-accept') {
               console.log('✅ Call accepted by:', signal.from_user_id)
               // Stop ringing sound
