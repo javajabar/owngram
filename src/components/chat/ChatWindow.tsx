@@ -709,7 +709,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             )}
             {(showSearch && searchResults.length > 0 ? searchResults : messages).map((msg, index) => {
                 // Determine if this message should show avatar (first in series)
-                const prevMessage = index > 0 ? messages[index - 1] : null
+                const messageList = showSearch && searchResults.length > 0 ? searchResults : messages
+                const prevMessage = index > 0 ? messageList[index - 1] : null
                 const isFirstInSeries = !prevMessage || 
                     prevMessage.sender_id !== msg.sender_id ||
                     (new Date(msg.created_at).getTime() - new Date(prevMessage.created_at).getTime()) > 5 * 60 * 1000 // 5 minutes gap
