@@ -19,11 +19,11 @@ export default function ChatLayout({
   // Don't check user here - middleware handles auth protection
   // Just ensure session is refreshed on navigation
   return (
-    <div className="flex h-screen bg-white dark:bg-black overflow-hidden">
+    <div className="flex h-screen bg-white dark:bg-black overflow-hidden max-w-full">
         <aside className="hidden md:block h-full shrink-0">
             <Sidebar />
         </aside>
-        <main className="flex-1 h-full min-w-0 relative">
+        <main className="flex-1 h-full min-w-0 relative max-w-full overflow-x-hidden">
             {children}
         </main>
     </div>

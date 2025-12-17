@@ -968,7 +968,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#E5E5E5] dark:bg-[#0E1621]">
+    <div className="flex flex-col h-full bg-[#E5E5E5] dark:bg-[#0E1621] max-w-full overflow-x-hidden">
       {/* Header */}
       <div className="h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center px-4 justify-between shrink-0 shadow-sm z-10">
         <div 

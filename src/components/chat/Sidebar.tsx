@@ -958,7 +958,7 @@ export function Sidebar() {
   }
 
   return (
-    <div className="w-full md:w-80 flex flex-col h-full bg-[#0E1621] dark:bg-[#0E1621] border-r border-gray-800 dark:border-gray-800 overflow-y-auto">
+    <div className="w-full md:w-80 flex flex-col h-full bg-[#0E1621] dark:bg-[#0E1621] border-r border-gray-800 dark:border-gray-800 overflow-y-auto overflow-x-hidden max-w-full">
       <div className="p-4 border-b border-gray-800 dark:border-gray-800 flex justify-between items-center bg-[#17212B] dark:bg-[#17212B]">
         <h1 className="font-bold text-xl text-blue-600">OwnGram</h1>
         <div className="flex gap-2">

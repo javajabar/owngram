@@ -35,9 +35,9 @@ export default function ChatPage() {
   }
 
   return (
-    <div className="h-full w-full">
+    <div className="h-full w-full max-w-full overflow-x-hidden">
         {/* Mobile: Show sidebar (list) as the main view */}
-        <div className="md:hidden h-full w-full">
+        <div className="md:hidden h-full w-full max-w-full overflow-x-hidden">
             <Sidebar />
         </div>
         
