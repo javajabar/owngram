@@ -12,7 +12,6 @@ export function Sidebar() {
     const [myProfile, setMyProfile] = useState<Profile | null>(null)
     const [users, setUsers] = useState<Profile[]>([]) // Found users
   const [searchQuery, setSearchQuery] = useState('')
-  const [showNewChat, setShowNewChat] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
   const [globalSearchResults, setGlobalSearchResults] = useState<any[]>([])
