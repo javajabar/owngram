@@ -771,7 +771,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-2">
+      <div className="flex-1 overflow-y-auto px-3 py-2 scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent">
         <div className="flex flex-col justify-end min-h-full">
             {!showSearch && messages.length === 0 && (
                 <div className="text-center text-gray-400 py-10">No messages yet. Say hi!</div>

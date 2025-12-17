@@ -1015,7 +1015,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent">
          {showGlobalSearch ? (
             <div className="p-2">
                 <div className="px-2 mb-2 flex items-center justify-between">

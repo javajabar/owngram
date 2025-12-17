@@ -219,9 +219,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
       <div 
         onContextMenu={handleContextMenu}
         className={cn(
-            message.attachments?.some((a: any) => a.type === 'image')
-                ? "max-w-[85%] px-0 py-0 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out"
-                : "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out",
+            "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out",
             message.deleted_at && message.deleted_for_all
                 ? "opacity-50 italic"
                 : "",
@@ -367,7 +365,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
                 {message.attachments.filter((a: any) => a.type === 'image').map((attachment: any, idx: number) => (
                     <div
                         key={idx}
-                        className="relative block rounded-lg overflow-hidden w-full cursor-pointer"
+                        className="relative block rounded-lg overflow-hidden max-w-sm cursor-pointer group"
                         onClick={(e) => {
                             e.stopPropagation()
                             if (onImageClick) {
@@ -378,9 +376,9 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
                         <img 
                             src={attachment.url} 
                             alt={attachment.name || 'Image'} 
-                            className="w-full h-auto object-cover hover:opacity-90 transition-opacity"
+                            className="w-full h-auto object-cover hover:opacity-90 transition-opacity rounded-lg"
                         />
-                        {/* Time overlay on image - always visible */}
+                        {/* Time overlay on image */}
                         <div className={cn(
                             "absolute bottom-1 right-1 px-1.5 py-0.5 rounded flex items-center gap-0.5",
                             "bg-black/50 backdrop-blur-sm text-white text-[8px]"
