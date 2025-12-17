@@ -76,6 +76,24 @@ export default function LoginPage() {
     try {
       console.log('Starting auth process...')
       if (isSignUp) {
+        // Validate username for signup
+        if (!username || !username.trim()) {
+          setError('Имя пользователя обязательно')
+          setIsLoading(false)
+          return
+        }
+        
+        // Validate username format - only English letters, numbers, underscore
+        const usernameRegex = /^[a-zA-Z0-9_]+$/
+        if (!usernameRegex.test(username)) {
+          setError('Имя пользователя может содержать только английские буквы, цифры и подчеркивание')
+          setIsLoading(false)
+          return
+        }
+        
+        // Remove @ if user typed it
+        const cleanUsername = username.replace(/^@+/, '')
+        
         // Validate password for signup
         if (!password || password.length < 6) {
           setError('Пароль должен быть не менее 6 символов')
@@ -89,8 +107,9 @@ export default function LoginPage() {
           email,
           password,
           options: {
+            emailRedirectTo: `${window.location.origin}/chat`,
             data: {
-              username: username || email.split('@')[0],
+              username: cleanUsername,
               full_name: fullName || '',
             }
           }
@@ -107,8 +126,8 @@ export default function LoginPage() {
             .from('profiles')
             .upsert({
               id: signUpData.user.id,
-              username: username || '@' + email.split('@')[0],
-              full_name: fullName || email.split('@')[0],
+              username: '@' + cleanUsername,
+              full_name: fullName || cleanUsername,
               updated_at: new Date().toISOString()
             }, {
               onConflict: 'id'
@@ -116,6 +135,20 @@ export default function LoginPage() {
 
           if (profileError) {
             console.error('Profile creation error:', profileError)
+          }
+
+          // Check if email confirmation is required
+          if (signUpData.user && !signUpData.session) {
+            // Email confirmation required - show OTP modal
+            setPendingEmail(email)
+            setIsOtpSignUp(true)
+            setShowOtpModal(true)
+            setCountdown(60)
+            setIsLoading(false)
+            setTimeout(() => {
+              otpInputRefs.current[0]?.focus()
+            }, 100)
+            return
           }
 
           // Wait for session
@@ -466,16 +499,24 @@ export default function LoginPage() {
                 </div>
                 <div>
                   <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                    Имя пользователя (необязательно)
+                    Имя пользователя <span className="text-red-500">*</span>
                   </label>
                   <input
                     id="username"
                     type="text"
+                    required
                     value={username}
-                    onChange={(e) => setUsername(e.target.value)}
+                    onChange={(e) => {
+                      // Only allow English letters, numbers, underscore
+                      const value = e.target.value.replace(/[^a-zA-Z0-9_]/g, '')
+                      setUsername(value)
+                    }}
                     className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-                    placeholder="@username"
+                    placeholder="username"
                   />
+                  <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    Только английские буквы, цифры и подчеркивание
+                  </p>
                 </div>
               </>
             )}
