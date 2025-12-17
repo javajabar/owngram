@@ -601,12 +601,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
   // Handle incoming calls
   useEffect(() => {
-    if (!chatId || !user || chat?.type !== 'dm') return
+    if (!chatId || !user?.id || chat?.type !== 'dm') {
+      console.log('⚠️ Call listener setup skipped:', { chatId, hasUser: !!user, userId: user?.id, chatType: chat?.type })
+      return
+    }
 
-    console.log('🔔 Setting up call listener for chat:', chatId, 'user:', user.id)
+    const currentUserId = user.id // Capture user ID in closure to avoid stale closures
+    console.log('🔔 Setting up call listener for chat:', chatId, 'user:', currentUserId)
 
     const channel = supabase
-      .channel(`calls-${chatId}-${user.id}`)
+      .channel(`calls-${chatId}-${currentUserId}`)
       .on(
         'postgres_changes',
         {
@@ -617,12 +621,38 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         },
         async (payload) => {
           const signal = payload.new as any
+          
+          // Normalize IDs for comparison (trim, lowercase)
+          const normalizeId = (id: string | null | undefined): string => {
+            if (!id) return ''
+            return String(id).trim().toLowerCase()
+          }
+          
+          const signalTo = normalizeId(signal.to_user_id)
+          const signalFrom = normalizeId(signal.from_user_id)
+          const currentUserNormalized = normalizeId(currentUserId) // Use ID from closure, not from user object
+          const otherUserId = normalizeId(otherUser?.id)
+          
           console.log('📞 Call signal received:', {
             type: signal.signal_type,
-            from: signal.from_user_id,
-            to: signal.to_user_id,
-            currentUser: user.id,
-            isForMe: signal.to_user_id === user.id
+            from: signalFrom,
+            to: signalTo,
+            currentUser: currentUserNormalized,
+            otherUser: otherUserId,
+            rawFrom: signal.from_user_id,
+            rawTo: signal.to_user_id,
+            rawCurrentUser: currentUserId,
+            isForMe: signalTo === currentUserNormalized,
+            comparison: {
+              toEqualsCurrent: signalTo === currentUserNormalized,
+              fromEqualsOther: signalFrom === otherUserId,
+              currentUserExists: !!currentUserId,
+              signalToExists: !!signal.to_user_id,
+              exactMatch: signalTo === currentUserNormalized,
+              typeCheck: typeof signalTo === typeof currentUserNormalized,
+              signalToLength: signalTo.length,
+              currentUserLength: currentUserNormalized.length
+            }
           })
           
           // Check if this signal is for current user
@@ -630,16 +660,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           // For call-accept: from_user_id should be otherUser (they accepted our call) OR we need to check if we're calling
           // For call-reject/call-end: either direction
           // For WebRTC signals (offer, answer, ice-candidate): pass to WebRTCHandler if we have one
-          const isCallRequestForMe = signal.signal_type === 'call-request' && signal.to_user_id === user.id
+          const isCallRequestForMe = signal.signal_type === 'call-request' && signalTo === currentUserNormalized
           const isCallAcceptForMe = signal.signal_type === 'call-accept' && 
-            ((signal.from_user_id === otherUser?.id && signal.to_user_id === user.id) || isCalling)
+            ((signalFrom === otherUserId && signalTo === currentUserNormalized) || isCalling)
           const isCallRejectForMe = (signal.signal_type === 'call-reject' || signal.signal_type === 'call-end') && 
-            (signal.to_user_id === user.id || signal.from_user_id === otherUser?.id || isCalling || incomingCall)
+            (signalTo === currentUserNormalized || signalFrom === otherUserId || isCalling || incomingCall)
           
           // WebRTC signals (offer, answer, ice-candidate) should be passed to WebRTCHandler
           const isWebRTCSignal = (signal.signal_type === 'offer' || signal.signal_type === 'answer' || signal.signal_type === 'ice-candidate') &&
             webrtcHandlerRef.current &&
-            (signal.from_user_id === otherUser?.id || signal.to_user_id === user.id)
+            (signalFrom === otherUserId || signalTo === currentUserNormalized)
           
           if (isCallRequestForMe || isCallAcceptForMe || isCallRejectForMe || isWebRTCSignal) {
             console.log('✅ Signal is for me! Processing...', { 
