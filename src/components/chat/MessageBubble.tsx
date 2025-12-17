@@ -220,7 +220,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         onContextMenu={handleContextMenu}
         className={cn(
             message.attachments?.some((a: any) => a.type === 'image')
-                ? "max-w-[130px] px-0 py-0 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out"
+                ? "max-w-[155px] px-0 py-0 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out"
                 : "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out",
             message.deleted_at && message.deleted_for_all
                 ? "opacity-50 italic"
@@ -367,7 +367,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
                 {message.attachments.filter((a: any) => a.type === 'image').map((attachment: any, idx: number) => (
                     <div
                         key={idx}
-                        className="relative block rounded-lg overflow-hidden max-w-[130px] cursor-pointer"
+                        className="relative block rounded-lg overflow-hidden max-w-[155px] cursor-pointer"
                         onClick={(e) => {
                             e.stopPropagation()
                             if (onImageClick) {
