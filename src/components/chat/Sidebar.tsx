@@ -219,8 +219,11 @@ export function Sidebar() {
                     console.error('Error checking online status:', error)
                 }
             }
-        }
+    } catch (error) {
+        console.error('Error fetching chats:', error)
+        setChats([])
     }
+  }
 
   // Play notification sound
   const playNotificationSound = () => {
