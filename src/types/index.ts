@@ -25,6 +25,9 @@ export interface Message {
 }
 
 export interface Chat {
+  lastMessage?: Message
+  otherUser?: Profile
+  unreadCount?: number
   id: string
   type: 'dm' | 'group'
   name: string | null
