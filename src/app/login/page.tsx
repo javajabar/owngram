@@ -21,6 +21,7 @@ export default function LoginPage() {
   const [otpLoading, setOtpLoading] = useState(false)
   const [countdown, setCountdown] = useState(0)
   const [pendingEmail, setPendingEmail] = useState('')
+  const [isOtpSignUp, setIsOtpSignUp] = useState(false)
   
   const otpInputRefs = useRef<(HTMLInputElement | null)[]>([])
   const router = useRouter()
@@ -42,10 +43,32 @@ export default function LoginPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    e.stopPropagation()
+    
+    console.log('=== FORM SUBMIT ===')
+    console.log('Email:', email)
+    console.log('Has password:', !!password)
+    console.log('Is signup:', isSignUp)
+    
+    // Validate inputs
+    if (!email || !email.trim()) {
+      console.error('Validation failed: No email')
+      setError('Введите email')
+      return
+    }
+    
+    if (!isSignUp && (!password || !password.trim())) {
+      console.error('Validation failed: No password')
+      setError('Введите пароль')
+      return
+    }
+    
+    console.log('Validation passed, starting auth...')
     setIsLoading(true)
     setError(null)
 
     try {
+      console.log('Starting auth process...')
       if (isSignUp) {
         // Send OTP code for registration
         const { error: otpError } = await supabase.auth.signInWithOtp({
@@ -59,31 +82,108 @@ export default function LoginPage() {
           }
         })
 
-        if (otpError) throw otpError
+        if (otpError) {
+          console.error('OTP Error:', otpError)
+          throw otpError
+        }
 
         // Show OTP modal
         setPendingEmail(email)
+        setIsOtpSignUp(true)
         setShowOtpModal(true)
         setCountdown(60)
+        setIsLoading(false) // Stop loading when OTP modal shows
         setTimeout(() => {
           otpInputRefs.current[0]?.focus()
         }, 100)
       } else {
-        // Sign in with password
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        })
+        // Try to sign in with password first
+        console.log('🔐 Attempting password login...', { email: email.substring(0, 5) + '...' })
+        
+        try {
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+            email,
+            password,
+          })
 
-        if (signInError) throw signInError
+          console.log('Login result:', { 
+            hasData: !!signInData, 
+            hasUser: !!signInData?.user,
+            hasSession: !!signInData?.session,
+            error: signInError?.message 
+          })
 
-        document.cookie = 'justLoggedIn=true; path=/; max-age=60'
-        await checkUser()
-        router.push('/chat')
+          if (signInError) {
+            console.error('❌ Login error:', signInError.message)
+            // If password login fails, try OTP login as fallback
+            if (signInError.message?.includes('Invalid login credentials') || 
+                signInError.message?.includes('password') ||
+                signInError.message?.includes('Email not confirmed')) {
+              console.log('🔄 Trying OTP login as fallback...')
+              // Try OTP login instead
+              const { error: otpError } = await supabase.auth.signInWithOtp({
+                email,
+                options: {
+                  shouldCreateUser: false
+                }
+              })
+
+              if (otpError) {
+                console.error('OTP fallback error:', otpError)
+                throw signInError // Show original password error
+              }
+
+              console.log('✅ OTP sent, showing modal')
+              // Show OTP modal for login
+              setPendingEmail(email)
+              setIsOtpSignUp(false)
+              setShowOtpModal(true)
+              setCountdown(60)
+              setIsLoading(false)
+              setTimeout(() => {
+                otpInputRefs.current[0]?.focus()
+              }, 100)
+              return
+            }
+            throw signInError
+          }
+
+          // Wait a bit for session to be set
+          console.log('⏳ Waiting for session...')
+          await new Promise(resolve => setTimeout(resolve, 500))
+          
+          // Check user and wait for session
+          console.log('👤 Checking user...')
+          await checkUser()
+          
+          // Double check session
+          const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+          console.log('Session check:', { 
+            hasSession: !!session, 
+            hasUser: !!session?.user,
+            error: sessionError?.message 
+          })
+          
+          if (session && session.user) {
+            console.log('✅ Session confirmed, redirecting to /chat')
+            router.push('/chat')
+            // Force a refresh to ensure middleware picks up the session
+            setTimeout(() => {
+              window.location.href = '/chat'
+            }, 100)
+          } else {
+            console.error('❌ No session after login')
+            setError('Не удалось создать сессию. Попробуйте еще раз.')
+            setIsLoading(false)
+          }
+        } catch (submitError: any) {
+          console.error('Submit error:', submitError)
+          throw submitError
+        }
       }
     } catch (err: any) {
+      console.error('Auth Error:', err)
       setError(err.message || 'Ошибка авторизации')
-    } finally {
       setIsLoading(false)
     }
   }
@@ -100,36 +200,65 @@ export default function LoginPage() {
     setOtpError(null)
 
     try {
-      const { data, error } = await supabase.auth.verifyOtp({
-        email: pendingEmail,
-        token: fullCode,
-        type: 'signup',
-      })
+      // Try signup first, then login
+      let data, error
+      if (isOtpSignUp) {
+        const result = await supabase.auth.verifyOtp({
+          email: pendingEmail,
+          token: fullCode,
+          type: 'signup',
+        })
+        data = result.data
+        error = result.error
+      } else {
+        const result = await supabase.auth.verifyOtp({
+          email: pendingEmail,
+          token: fullCode,
+          type: 'email',
+        })
+        data = result.data
+        error = result.error
+      }
 
       if (error) throw error
 
-      if (data.user) {
-        // Create profile
-        const { error: profileError } = await supabase
-          .from('profiles')
-          .upsert({
-            id: data.user.id,
-            username: username || '@' + pendingEmail.split('@')[0],
-            full_name: fullName || pendingEmail.split('@')[0],
-            updated_at: new Date().toISOString()
-          }, {
-            onConflict: 'id'
-          })
+      if (data?.user) {
+        // Create or update profile only for signup
+        if (isOtpSignUp) {
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .upsert({
+              id: data.user.id,
+              username: username || '@' + pendingEmail.split('@')[0],
+              full_name: fullName || pendingEmail.split('@')[0],
+              updated_at: new Date().toISOString()
+            }, {
+              onConflict: 'id'
+            })
 
-        if (profileError) {
-          console.error('Profile creation error:', profileError)
+          if (profileError) {
+            console.error('Profile creation error:', profileError)
+          }
         }
 
-        document.cookie = 'justLoggedIn=true; path=/; max-age=60'
+        // Wait a bit for session to be set
+        await new Promise(resolve => setTimeout(resolve, 300))
+        
+        // Check user and wait for session
         await checkUser()
-        router.push('/chat')
+        
+        // Double check session
+        const { data: { session } } = await supabase.auth.getSession()
+        if (session) {
+          setShowOtpModal(false)
+          router.push('/chat')
+          router.refresh()
+        } else {
+          setOtpError('Не удалось создать сессию. Попробуйте еще раз.')
+        }
       }
     } catch (err: any) {
+      console.error('OTP Verification Error:', err)
       setOtpError(err.message || 'Неверный код')
       setOtpCode(['', '', '', '', '', '', '', ''])
       otpInputRefs.current[0]?.focus()
@@ -227,7 +356,13 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        <form 
+          className="mt-8 space-y-6" 
+          onSubmit={(e) => {
+            console.log('Form onSubmit triggered')
+            handleSubmit(e)
+          }}
+        >
           {error && (
             <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 px-4 py-3 rounded-lg text-sm">
               {error}
@@ -304,6 +439,10 @@ export default function LoginPage() {
             <button
               type="submit"
               disabled={isLoading}
+              onClick={(e) => {
+                console.log('Button clicked', { isLoading, email, password: password ? '***' : 'empty' })
+                // Don't prevent default - let form handle it
+              }}
               className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {isLoading ? 'Загрузка...' : (isSignUp ? 'Зарегистрироваться' : 'Войти')}
