@@ -4,11 +4,13 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Message, Profile, Chat } from '@/types'
 import { useAuthStore } from '@/store/useAuthStore'
-import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X, Search } from 'lucide-react'
+import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X, Search, Phone } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { MessageBubble } from './MessageBubble'
 import { ImageViewer } from '@/components/ImageViewer'
+import { CallModal } from './CallModal'
 import { soundManager } from '@/lib/sounds'
+import { WebRTCHandler } from '@/lib/webrtc'
 
 // Format last seen time
 function formatLastSeen(dateStr: string): string {
@@ -54,6 +56,15 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [showSearch, setShowSearch] = useState(false)
   const [viewingImage, setViewingImage] = useState<string | null>(null)
   const [viewingAvatar, setViewingAvatar] = useState<string | null>(null)
+  const [isCalling, setIsCalling] = useState(false)
+  const [incomingCall, setIncomingCall] = useState(false)
+  const [isInCall, setIsInCall] = useState(false)
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null)
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [isMuted, setIsMuted] = useState(false)
+  const [isVideoEnabled, setIsVideoEnabled] = useState(true)
+  const webrtcHandlerRef = useRef<WebRTCHandler | null>(null)
+  const callChannelRef = useRef<any>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -450,6 +461,172 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     }
   }, [chatId, user])
 
+  // Call handlers (defined before useEffect to avoid dependency issues)
+  const handleEndCall = async () => {
+    if (webrtcHandlerRef.current) {
+      await webrtcHandlerRef.current.endCall()
+      webrtcHandlerRef.current = null
+    }
+
+    setIsCalling(false)
+    setIncomingCall(false)
+    setIsInCall(false)
+    setLocalStream(null)
+    setRemoteStream(null)
+    setIsMuted(false)
+    setIsVideoEnabled(true)
+  }
+
+  const handleStartCall = async () => {
+    if (!user || !otherUser || !chatId || chat?.type !== 'dm') return
+
+    try {
+      setIsCalling(true)
+      
+      // Send call request
+      await supabase.from('call_signals').insert({
+        chat_id: chatId,
+        from_user_id: user.id,
+        to_user_id: otherUser.id,
+        signal_type: 'call-request',
+        created_at: new Date().toISOString(),
+      })
+
+      // Initialize WebRTC as initiator
+      const handler = new WebRTCHandler(
+        user.id,
+        otherUser.id,
+        chatId,
+        (stream) => setRemoteStream(stream),
+        handleEndCall
+      )
+      webrtcHandlerRef.current = handler
+      const stream = await handler.initialize(true)
+      setLocalStream(stream)
+    } catch (error) {
+      console.error('Error starting call:', error)
+      alert('Не удалось начать звонок. Проверьте разрешения на камеру и микрофон.')
+      setIsCalling(false)
+    }
+  }
+
+  const handleAcceptCall = async () => {
+    if (!user || !otherUser || !chatId) return
+
+    try {
+      setIsInCall(true)
+      setIncomingCall(false)
+
+      // Send call accept
+      await supabase.from('call_signals').insert({
+        chat_id: chatId,
+        from_user_id: user.id,
+        to_user_id: otherUser.id,
+        signal_type: 'call-accept',
+        created_at: new Date().toISOString(),
+      })
+
+      // Initialize WebRTC as answerer
+      const handler = new WebRTCHandler(
+        user.id,
+        otherUser.id,
+        chatId,
+        (stream) => setRemoteStream(stream),
+        handleEndCall
+      )
+      webrtcHandlerRef.current = handler
+      const stream = await handler.initialize(false)
+      setLocalStream(stream)
+    } catch (error) {
+      console.error('Error accepting call:', error)
+      alert('Не удалось принять звонок. Проверьте разрешения на камеру и микрофон.')
+      handleEndCall()
+    }
+  }
+
+  const handleRejectCall = async () => {
+    if (!user || !otherUser || !chatId) return
+
+    // Send call reject
+    await supabase.from('call_signals').insert({
+      chat_id: chatId,
+      from_user_id: user.id,
+      to_user_id: otherUser.id,
+      signal_type: 'call-reject',
+      created_at: new Date().toISOString(),
+    })
+
+    handleEndCall()
+  }
+
+  const handleToggleMute = () => {
+    if (webrtcHandlerRef.current) {
+      webrtcHandlerRef.current.toggleMute()
+      setIsMuted(!isMuted)
+    }
+  }
+
+  const handleToggleVideo = () => {
+    if (webrtcHandlerRef.current) {
+      webrtcHandlerRef.current.toggleVideo()
+      setIsVideoEnabled(!isVideoEnabled)
+    }
+  }
+
+  // Handle incoming calls
+  useEffect(() => {
+    if (!chatId || !user || chat?.type !== 'dm' || !otherUser) return
+
+    const channel = supabase
+      .channel(`calls-${chatId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'call_signals',
+          filter: `chat_id=eq.${chatId}`,
+        },
+        async (payload) => {
+          const signal = payload.new as any
+          if (signal.from_user_id === otherUser.id && signal.to_user_id === user.id) {
+            if (signal.signal_type === 'call-request') {
+              setIncomingCall(true)
+              soundManager.playReceiveMessage() // Play notification sound
+            } else if (signal.signal_type === 'call-accept' && isCalling) {
+              setIsInCall(true)
+              setIsCalling(false)
+              // Initialize WebRTC as answerer
+              try {
+                const handler = new WebRTCHandler(
+                  user.id,
+                  otherUser.id,
+                  chatId,
+                  (stream) => setRemoteStream(stream),
+                  handleEndCall
+                )
+                webrtcHandlerRef.current = handler
+                const stream = await handler.initialize(false)
+                setLocalStream(stream)
+              } catch (error) {
+                console.error('Error accepting call:', error)
+                handleEndCall()
+              }
+            } else if (signal.signal_type === 'call-reject' || signal.signal_type === 'call-end') {
+              handleEndCall()
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    callChannelRef.current = channel
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [chatId, user, otherUser, chat, isCalling])
+
   const markAsRead = async (messageId: string) => {
       try {
           await supabase
@@ -725,19 +902,34 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 </div>
             </div>
         </div>
-        <button 
-            onClick={(e) => {
-                e.stopPropagation()
-                setShowSearch(!showSearch)
-                if (!showSearch) {
-                    setSearchQuery('')
-                    setSearchResults([])
-                }
-            }}
-            className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full shrink-0"
-        >
-            <Search className="w-5 h-5" />
-        </button>
+        <div className="flex items-center gap-2">
+            {chat?.type === 'dm' && otherUser && (
+              <button 
+                  onClick={(e) => {
+                      e.stopPropagation()
+                      handleStartCall()
+                  }}
+                  className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full shrink-0 transition-colors"
+                  title="Позвонить"
+              >
+                  <Phone className="w-5 h-5" />
+              </button>
+            )}
+            <button 
+                onClick={(e) => {
+                    e.stopPropagation()
+                    setShowSearch(!showSearch)
+                    if (!showSearch) {
+                        setSearchQuery('')
+                        setSearchResults([])
+                    }
+                }}
+                className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full shrink-0 transition-colors"
+                title="Поиск"
+            >
+                <Search className="w-5 h-5" />
+            </button>
+        </div>
       </div>
 
       {/* Search Bar */}
@@ -972,6 +1164,22 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           onClose={() => setViewingAvatar(null)}
         />
       )}
+
+      {/* Call Modal */}
+      <CallModal
+        isOpen={isCalling || incomingCall || isInCall}
+        isIncoming={incomingCall}
+        otherUser={otherUser}
+        onClose={handleEndCall}
+        onAccept={handleAcceptCall}
+        onReject={handleRejectCall}
+        localStream={localStream}
+        remoteStream={remoteStream}
+        isMuted={isMuted}
+        isVideoEnabled={isVideoEnabled}
+        onToggleMute={handleToggleMute}
+        onToggleVideo={handleToggleVideo}
+      />
 
       {/* Input */}
       <div className="p-3 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 shrink-0">
