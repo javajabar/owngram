@@ -103,7 +103,7 @@ export default function LoginPage() {
       const { data, error } = await supabase.auth.verifyOtp({
         email: pendingEmail,
         token: fullCode,
-        type: 'email',
+        type: 'signup',
       })
 
       if (error) throw error
