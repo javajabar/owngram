@@ -1006,11 +1006,11 @@ export function Sidebar() {
                                 >
                                     {/* Avatar */}
                                     <div className="relative w-14 h-14 rounded-full flex items-center justify-center shrink-0 overflow-visible bg-gray-200 dark:bg-gray-700">
-                                        <div className="w-14 h-14 rounded-full overflow-hidden">
+                                        <div className="w-14 h-14 rounded-full overflow-hidden flex items-center justify-center">
                                             {avatarUrl ? (
                                                 <img src={avatarUrl} className="w-full h-full object-cover" alt={displayName} />
                                             ) : (
-                                                <span className="text-gray-600 dark:text-gray-300 font-semibold text-lg">
+                                                <span className="text-gray-600 dark:text-gray-300 font-semibold text-lg flex items-center justify-center">
                                                     {displayName[0]?.toUpperCase() || '?'}
                                                 </span>
                                             )}
