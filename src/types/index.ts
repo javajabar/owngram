@@ -5,6 +5,8 @@ export interface Profile {
   avatar_url: string | null
   status: string | null
   last_seen_at: string | null
+  bio?: string | null
+  birth_date?: string | null
 }
 
 export interface Message {

@@ -20,6 +20,8 @@ export default function ProfilePage() {
   const [username, setUsername] = useState('')
   const [fullName, setFullName] = useState('')
   const [status, setStatus] = useState('')
+  const [bio, setBio] = useState('')
+  const [birthDate, setBirthDate] = useState('')
   const [avatarUrl, setAvatarUrl] = useState('')
   const [email, setEmail] = useState('')
   const [newEmail, setNewEmail] = useState('')
@@ -55,6 +57,8 @@ export default function ProfilePage() {
           setUsername(data.username?.replace('@', '') || '') // Remove @ for input
           setFullName(data.full_name || '')
           setStatus(data.status || '')
+          setBio(data.bio || '')
+          setBirthDate(data.birth_date || '')
           setAvatarUrl(data.avatar_url || '')
           // Get email from user object
           if (user?.email) {
@@ -81,6 +85,8 @@ export default function ProfilePage() {
               username: `@${username.replace('@', '')}`, // Ensure @ is present
               full_name: fullName,
               status: status,
+              bio: bio || null,
+              birth_date: birthDate || null,
               avatar_url: avatarUrl,
               updated_at: new Date().toISOString()
           }
@@ -230,13 +236,34 @@ export default function ProfilePage() {
                 </div>
 
                 <div>
-                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Bio / Status</label>
-                    <textarea
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Статус</label>
+                    <input
+                        type="text"
                         value={status}
                         onChange={(e) => setStatus(e.target.value)}
+                        className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="Ваш статус..."
+                    />
+                </div>
+
+                <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">О себе</label>
+                    <textarea
+                        value={bio}
+                        onChange={(e) => setBio(e.target.value)}
                         rows={3}
                         className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                        placeholder="About me..."
+                        placeholder="Расскажите о себе..."
+                    />
+                </div>
+
+                <div>
+                    <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Дата рождения (необязательно)</label>
+                    <input
+                        type="date"
+                        value={birthDate}
+                        onChange={(e) => setBirthDate(e.target.value)}
+                        className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
                     />
                 </div>
 

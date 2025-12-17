@@ -8,6 +8,7 @@ import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X, Search } from
 import { useRouter } from 'next/navigation'
 import { MessageBubble } from './MessageBubble'
 import { ImageViewer } from '@/components/ImageViewer'
+import { soundManager } from '@/lib/sounds'
 
 // Format last seen time
 function formatLastSeen(dateStr: string): string {
@@ -141,6 +142,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           recorder.start()
           setMediaRecorder(recorder)
           setIsRecording(true)
+          // Play sound when recording starts
+          soundManager.playRecordingStart()
       } catch (err) {
           console.error('Mic error:', err)
           alert('Could not access microphone')
@@ -180,6 +183,9 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             attachments: [{ type: 'voice', url: publicUrl }],
             delivered_at: new Date().toISOString() // Голосовое сообщение доставлено (1 галочка)
           })
+          
+          // Play sound when voice message is sent
+          soundManager.playMessageSent()
       } catch (err) {
           console.error('Voice send error:', err)
           alert('Failed to send voice message')
@@ -313,6 +319,11 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               setTimeout(() => {
                 messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
               }, 100)
+              
+              // Play sound when receiving a message (only if not from current user)
+              if (newMsg.sender_id !== user?.id) {
+                soundManager.playMessageReceived()
+              }
               
               return [...prev, newMsg]
           })
@@ -868,11 +879,53 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                         {chat?.type === 'dm' && otherUser?.status && (
                             <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{otherUser.status}</p>
                         )}
+                        {chat?.type === 'dm' && otherUser?.bio && (
+                            <p className="text-gray-500 dark:text-gray-400 text-sm mt-2">{otherUser.bio}</p>
+                        )}
+                        {chat?.type === 'dm' && otherUser?.birth_date && (
+                            <p className="text-gray-500 dark:text-gray-400 text-xs mt-1">
+                                Дата рождения: {new Date(otherUser.birth_date).toLocaleDateString('ru-RU')}
+                            </p>
+                        )}
                     </div>
+                    
+                    {chat?.type === 'dm' && chat?.name !== 'Избранное' && otherUser?.id !== user?.id && (
+                        <button 
+                            onClick={async () => {
+                                if (!user || !otherUser) return
+                                try {
+                                    // Add to blocked users (you'll need to create a blocked_users table)
+                                    const { error } = await supabase
+                                        .from('blocked_users')
+                                        .upsert({
+                                            user_id: user.id,
+                                            blocked_user_id: otherUser.id,
+                                            created_at: new Date().toISOString()
+                                        }, {
+                                            onConflict: 'user_id,blocked_user_id'
+                                        })
+                                    
+                                    if (error) {
+                                        console.error('Error blocking user:', error)
+                                        alert('Ошибка при блокировке пользователя')
+                                    } else {
+                                        alert('Пользователь заблокирован')
+                                        setShowProfile(false)
+                                    }
+                                } catch (error) {
+                                    console.error('Error:', error)
+                                    alert('Ошибка при блокировке пользователя')
+                                }
+                            }}
+                            className="w-full mt-4 py-3 bg-red-500 hover:bg-red-600 text-white rounded-xl font-medium transition-colors"
+                        >
+                            Заблокировать
+                        </button>
+                    )}
                     
                     <button 
                         onClick={() => setShowProfile(false)}
-                        className="w-full mt-6 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-gray-900 dark:text-white font-medium transition-colors"
+                        className="w-full mt-4 py-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-xl text-gray-900 dark:text-white font-medium transition-colors"
                     >
                         Закрыть
                     </button>

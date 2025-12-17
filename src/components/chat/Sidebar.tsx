@@ -5,7 +5,8 @@ import { supabase } from '@/lib/supabase'
 import { Profile, Chat } from '@/types'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/useAuthStore'
-import { LogOut, User as UserIcon, Search, X, Settings, Trash2, MoreVertical } from 'lucide-react'
+import { Plus, Settings, LogOut, User as UserIcon, Search, Trash2, X, MoreVertical } from 'lucide-react'
+import { soundManager } from '@/lib/sounds'
 
 export function Sidebar() {
     const [chats, setChats] = useState<Chat[]>([])
@@ -27,6 +28,10 @@ export function Sidebar() {
     const chatsRef = useRef<Chat[]>([])
     const router = useRouter()
     const { user, signOut } = useAuthStore()
+    const [showCreateGroup, setShowCreateGroup] = useState(false)
+    const [groupName, setGroupName] = useState('')
+    const [selectedUsers, setSelectedUsers] = useState<string[]>([])
+    const [availableUsers, setAvailableUsers] = useState<Profile[]>([])
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -239,26 +244,7 @@ export function Sidebar() {
 
   // Play notification sound
   const playNotificationSound = () => {
-    try {
-      // Create a simple beep sound using Web Audio API
-      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
-      const oscillator = audioContext.createOscillator()
-      const gainNode = audioContext.createGain()
-      
-      oscillator.connect(gainNode)
-      gainNode.connect(audioContext.destination)
-      
-      oscillator.frequency.value = 800
-      oscillator.type = 'sine'
-      
-      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime)
-      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3)
-      
-      oscillator.start(audioContext.currentTime)
-      oscillator.stop(audioContext.currentTime + 0.3)
-    } catch (e) {
-      console.error('Error playing notification sound:', e)
-    }
+    soundManager.playMessageReceived()
   }
 
   // Create "Избранное" (Saved Messages) chat for self
@@ -927,22 +913,6 @@ export function Sidebar() {
                     </div>
                 )}
             </button>
-            <button 
-                onClick={() => {
-                    // TODO: Open settings
-                }}
-                className="p-2 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full transition-colors"
-                title="Settings"
-            >
-                <Settings className="w-5 h-5" />
-            </button>
-            <button 
-                onClick={() => { signOut(); router.push('/login') }} 
-                className="p-2 hover:bg-gray-200 dark:hover:bg-gray-800 rounded-full text-red-500 transition-colors"
-                title="Sign Out"
-            >
-                <LogOut className="w-5 h-5" />
-            </button>
         </div>
       </div>
 
@@ -1322,14 +1292,126 @@ export function Sidebar() {
                                                 </button>
                                             </div>
                                         </div>
-                                    </div>
-                                )}
-                            </div>
-                        )
-                    })}
-                </div>
-            )}
+            </div>
+        )}
+
+      {/* Bottom Footer - Settings and Logout */}
+      <div className="mt-auto p-4 border-t border-gray-800 dark:border-gray-800 bg-[#17212B] dark:bg-[#17212B] shrink-0">
+        <div className="flex gap-2">
+          <button 
+            onClick={() => router.push('/chat/settings')} 
+            className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+          >
+            <Settings className="w-4 h-4" />
+            <span>Настройки</span>
+          </button>
+          <button 
+            onClick={() => { signOut(); router.push('/login') }} 
+            className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
+          >
+            <LogOut className="w-4 h-4" />
+            <span>Выход</span>
+          </button>
+        </div>
       </div>
+
+      {/* Create Group Modal */}
+      {showCreateGroup && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowCreateGroup(false)}>
+          <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Создать группу</h2>
+              <button onClick={() => setShowCreateGroup(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            
+            <div className="p-4 flex-1 overflow-y-auto space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Название группы
+                </label>
+                <input
+                  type="text"
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                  placeholder="Введите название группы"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Участники ({selectedUsers.length})
+                </label>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {availableUsers.map((userProfile) => (
+                    <div
+                      key={userProfile.id}
+                      onClick={() => {
+                        if (selectedUsers.includes(userProfile.id)) {
+                          setSelectedUsers(selectedUsers.filter(id => id !== userProfile.id))
+                        } else {
+                          setSelectedUsers([...selectedUsers, userProfile.id])
+                        }
+                      }}
+                      className={`p-3 rounded-lg cursor-pointer transition-colors flex items-center gap-3 ${
+                        selectedUsers.includes(userProfile.id)
+                          ? 'bg-blue-100 dark:bg-blue-900/30 border-2 border-blue-500'
+                          : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
+                      }`}
+                    >
+                      <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">
+                        {userProfile.avatar_url ? (
+                          <img src={userProfile.avatar_url} className="w-full h-full object-cover" alt={userProfile.username || 'User'} />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-sm font-bold text-gray-500">
+                            {userProfile.username?.[1]?.toUpperCase() || userProfile.full_name?.[0]?.toUpperCase() || 'U'}
+                          </div>
+                        )}
+                      </div>
+                      <div className="flex-1">
+                        <div className="font-medium text-gray-900 dark:text-white">
+                          {userProfile.full_name || userProfile.username?.replace(/^@+/, '') || 'User'}
+                        </div>
+                        {userProfile.username && (
+                          <div className="text-sm text-gray-500 dark:text-gray-400">
+                            @{userProfile.username.replace(/^@+/, '')}
+                          </div>
+                        )}
+                      </div>
+                      {selectedUsers.includes(userProfile.id) && (
+                        <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
+                          <span className="text-white text-xs">✓</span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex gap-2">
+              <button
+                onClick={() => {
+                  setShowCreateGroup(false)
+                  setGroupName('')
+                  setSelectedUsers([])
+                }}
+                className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors"
+              >
+                Отмена
+              </button>
+              <button
+                onClick={createGroup}
+                className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
+              >
+                Создать
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
