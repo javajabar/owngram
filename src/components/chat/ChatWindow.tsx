@@ -844,17 +844,17 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       {/* Profile Modal */}
       {showProfile && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowProfile(false)}>
-            <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all" onClick={e => e.stopPropagation()}>
+            <div className="bg-white dark:bg-gray-800 rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden transform transition-all" onClick={e => e.stopPropagation()}>
                 {/* Header with gradient */}
-                <div className="h-32 bg-gradient-to-br from-blue-500 via-purple-600 to-pink-500 relative">
+                <div className="h-24 bg-gradient-to-br from-blue-500 via-purple-600 to-pink-500 relative rounded-t-[2rem]">
                     <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent"></div>
                 </div>
                 
-                <div className="px-8 pb-8 pt-2">
+                <div className="px-6 pb-6 pt-2">
                     {/* Avatar */}
-                    <div className="relative -mt-16 mb-6 flex justify-center">
+                    <div className="relative -mt-12 mb-5 flex justify-center">
                         <div 
-                            className="w-28 h-28 rounded-full border-4 border-white dark:border-gray-800 shadow-lg overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center cursor-pointer hover:opacity-90 transition-all hover:scale-105"
+                            className="w-20 h-20 rounded-full border-4 border-white dark:border-gray-800 shadow-lg overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center cursor-pointer hover:opacity-90 transition-all hover:scale-105"
                             onClick={(e) => {
                                 e.stopPropagation()
                                 if (otherUser?.avatar_url) {
@@ -865,7 +865,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                             {otherUser?.avatar_url ? (
                                 <img src={otherUser.avatar_url} className="w-full h-full object-cover" alt={otherUser.username || 'User'} />
                             ) : (
-                                <span className="text-3xl font-bold text-gray-500 dark:text-gray-300">
+                                <span className="text-2xl font-bold text-gray-500 dark:text-gray-300">
                                     {(chat?.type === 'dm' ? (otherUser?.username?.[0] || otherUser?.full_name?.[0]) : (chat?.name?.[0])) || '?'}
                                 </span>
                             )}
@@ -873,35 +873,35 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     </div>
                     
                     {/* User Info */}
-                    <div className="mb-6 text-center space-y-3">
+                    <div className="mb-5 text-center space-y-2.5">
                         <div>
-                            <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">
+                            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
                                 {chat?.type === 'dm' 
                                     ? (chat?.name === 'Избранное' ? 'Избранное' : (otherUser?.full_name || otherUser?.username?.replace(/^@+/, '') || 'User'))
                                     : chat?.name}
                             </h2>
                             {chat?.type === 'dm' && chat?.name !== 'Избранное' && otherUser?.username && (
-                                <p className="text-blue-500 dark:text-blue-400 text-base font-medium">@{otherUser.username.replace(/^@+/, '')}</p>
+                                <p className="text-blue-500 dark:text-blue-400 text-sm font-medium">@{otherUser.username.replace(/^@+/, '')}</p>
                             )}
                         </div>
                         
                         {chat?.type === 'dm' && otherUser?.status && (
-                            <div className="pt-2">
-                                <p className="text-gray-600 dark:text-gray-300 text-base leading-relaxed">{otherUser.status}</p>
+                            <div className="pt-1.5">
+                                <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed">{otherUser.status}</p>
                             </div>
                         )}
                         
                         {chat?.type === 'dm' && otherUser?.bio && (
-                            <div className="pt-2 border-t border-gray-200 dark:border-gray-700">
-                                <p className="text-gray-700 dark:text-gray-200 text-base leading-relaxed whitespace-pre-wrap break-words">
+                            <div className="pt-1.5 border-t border-gray-200 dark:border-gray-700">
+                                <p className="text-gray-700 dark:text-gray-200 text-sm leading-relaxed whitespace-pre-wrap break-words">
                                     {otherUser.bio}
                                 </p>
                             </div>
                         )}
                         
                         {chat?.type === 'dm' && otherUser?.birth_date && (
-                            <div className="pt-2">
-                                <p className="text-gray-500 dark:text-gray-400 text-sm">
+                            <div className="pt-1.5">
+                                <p className="text-gray-500 dark:text-gray-400 text-xs">
                                     <span className="font-medium">Дата рождения:</span> {new Date(otherUser.birth_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
                                 </p>
                             </div>
@@ -909,7 +909,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     </div>
                     
                     {/* Action Buttons */}
-                    <div className="space-y-3">
+                    <div className="space-y-2.5">
                         {chat?.type === 'dm' && chat?.name !== 'Избранное' && otherUser?.id !== user?.id && (
                             <button 
                                 onClick={async () => {
@@ -937,7 +937,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                         alert('Ошибка при блокировке пользователя')
                                     }
                                 }}
-                                className="w-full py-3.5 bg-red-500 hover:bg-red-600 text-white rounded-xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg active:scale-95"
+                                className="w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg active:scale-95"
                             >
                                 Заблокировать
                             </button>
@@ -945,7 +945,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                         
                         <button 
                             onClick={() => setShowProfile(false)}
-                            className="w-full py-3.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-xl text-gray-900 dark:text-white font-semibold transition-all duration-200 shadow-sm hover:shadow-md active:scale-95"
+                            className="w-full py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-2xl text-gray-900 dark:text-white font-semibold transition-all duration-200 shadow-sm hover:shadow-md active:scale-95"
                         >
                             Закрыть
                         </button>
