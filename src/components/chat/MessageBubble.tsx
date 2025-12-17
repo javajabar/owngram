@@ -219,7 +219,9 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
       <div 
         onContextMenu={handleContextMenu}
         className={cn(
-            "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out",
+            message.attachments?.some((a: any) => a.type === 'image')
+                ? "max-w-[85%] px-0 py-0 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out"
+                : "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out",
             message.deleted_at && message.deleted_for_all
                 ? "opacity-50 italic"
                 : "",
@@ -365,7 +367,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
                 {message.attachments.filter((a: any) => a.type === 'image').map((attachment: any, idx: number) => (
                     <div
                         key={idx}
-                        className="block rounded-lg overflow-hidden max-w-sm cursor-pointer"
+                        className="relative block rounded-lg overflow-hidden w-full cursor-pointer"
                         onClick={(e) => {
                             e.stopPropagation()
                             if (onImageClick) {
@@ -378,6 +380,29 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
                             alt={attachment.name || 'Image'} 
                             className="w-full h-auto object-cover hover:opacity-90 transition-opacity"
                         />
+                        {/* Time overlay on image - always visible */}
+                        <div className={cn(
+                            "absolute bottom-1 right-1 px-1.5 py-0.5 rounded flex items-center gap-0.5",
+                            "bg-black/50 backdrop-blur-sm text-white text-[8px]"
+                        )}>
+                            <span>{format(new Date(message.created_at), 'HH:mm')}</span>
+                            {isMe && (
+                                <span className="relative flex items-center">
+                                    {message.delivered_at ? (
+                                        message.read_at ? (
+                                            <span className="relative inline-flex items-center">
+                                                <Check className="w-2.5 h-2.5 text-white" />
+                                                <Check className="w-2.5 h-2.5 text-white absolute left-1" />
+                                            </span>
+                                        ) : (
+                                            <Check className="w-2.5 h-2.5 text-white" />
+                                        )
+                                    ) : (
+                                        <span className="w-2.5 h-2.5 text-white/50">⏳</span>
+                                    )}
+                                </span>
+                            )}
+                        </div>
                     </div>
                 ))}
                 {message.content && message.content !== '📷 Фото' && (
@@ -437,7 +462,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         )}
         
         {/* Time and checkmarks inline */}
-        <div className={cn("text-[10px] flex items-center gap-1 shrink-0", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
+        <div className={cn("text-[8px] flex items-center gap-1 shrink-0", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
             <span className="opacity-70 whitespace-nowrap">{format(new Date(message.created_at), 'HH:mm')}</span>
             {isMe && (
                 <span className="relative flex items-center" title={message.read_at ? 'Прочитано' : message.delivered_at ? 'Доставлено' : 'Отправляется...'}>

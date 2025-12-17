@@ -910,8 +910,8 @@ export function Sidebar() {
   }
 
   return (
-    <div className="w-full md:w-80 flex flex-col h-full bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800">
-      <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50">
+    <div className="w-full md:w-80 flex flex-col h-full bg-[#0E1621] dark:bg-[#0E1621] border-r border-gray-800 dark:border-gray-800 overflow-y-auto">
+      <div className="p-4 border-b border-gray-800 dark:border-gray-800 flex justify-between items-center bg-[#17212B] dark:bg-[#17212B]">
         <h1 className="font-bold text-xl text-blue-600">OwnGram</h1>
         <div className="flex gap-2">
             <button 
@@ -947,12 +947,12 @@ export function Sidebar() {
       </div>
 
       {/* Search Bar - Always visible */}
-      <div className="p-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900">
+      <div className="p-3 border-b border-gray-800 dark:border-gray-800 bg-[#17212B] dark:bg-[#17212B]">
         <div className="relative">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
             <input 
                 type="text" 
-                placeholder="Поиск по @username или сообщениям..." 
+                placeholder="Поиск" 
                 value={searchQuery}
                 onChange={(e) => {
                     const value = e.target.value
@@ -1003,7 +1003,7 @@ export function Sidebar() {
                                     setShowGlobalSearch(false)
                                     setSearchQuery('')
                                 }}
-                                className="p-3 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors flex items-start gap-3"
+                                className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer transition-colors flex items-start gap-3"
                             >
                                 {/* Avatar */}
                                 <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700">
@@ -1065,7 +1065,7 @@ export function Sidebar() {
                         <div 
                            key={u.id} 
                            onClick={() => createChat(u.id)} 
-                           className="p-3 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer flex items-center gap-3 transition-colors"
+                           className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer flex items-center gap-3 transition-colors"
                         >
                             <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full flex items-center justify-center shrink-0 text-white font-bold">
                                {u.avatar_url ? (
@@ -1131,7 +1131,7 @@ export function Sidebar() {
                                     router.push(`/chat/${result.chat.id}`)
                                     setShowGlobalSearch(false)
                                 }}
-                                className="p-3 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors"
+                                className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer transition-colors"
                             >
                                 <div className="flex items-center gap-2 mb-1">
                                     <div className="text-xs font-semibold text-gray-900 dark:text-white">
@@ -1225,7 +1225,7 @@ export function Sidebar() {
                             <div 
                                 key={chat.id} 
                                 onContextMenu={(e) => handleContextMenu(e, chat.id)}
-                                className="px-3 py-2.5 hover:bg-gray-100 dark:hover:bg-gray-800/50 cursor-pointer border-b border-gray-100 dark:border-gray-800/50 transition-colors flex items-center gap-3 relative group"
+                                className="px-3 py-2.5 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] cursor-pointer border-b border-gray-800 dark:border-gray-800 transition-colors flex items-center gap-3 relative group"
                             >
                                 <div 
                                     onClick={() => router.push(`/chat/${chat.id}`)} 
