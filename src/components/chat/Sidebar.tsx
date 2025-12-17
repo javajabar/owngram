@@ -1076,7 +1076,7 @@ export function Sidebar() {
             <div className="p-2">
                 <div className="px-2 mb-4">
                     <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Поиск по всем чатам</h3>
+                        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Поиск</h3>
                         <button
                             onClick={() => {
                                 setShowGlobalSearch(false)

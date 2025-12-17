@@ -507,6 +507,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     
     setIsSearching(true)
     try {
+      // Search only in current chat
       const { data, error } = await supabase
         .from('messages')
         .select('*, sender:profiles(*)')
@@ -631,19 +632,6 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         >
             <button onClick={(e) => { e.stopPropagation(); router.push('/chat') }} className="md:hidden p-2 -ml-2 text-gray-600 dark:text-gray-300 shrink-0 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full">
                 <ArrowLeft className="w-6 h-6" />
-            </button>
-            <button
-                onClick={(e) => {
-                    e.stopPropagation()
-                    setShowSearch(!showSearch)
-                    if (!showSearch) {
-                        setSearchQuery('')
-                        setSearchResults([])
-                    }
-                }}
-                className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
-            >
-                <Search className="w-5 h-5" />
             </button>
             {/* Avatar */}
             <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gradient-to-tr from-blue-400 to-purple-500">
