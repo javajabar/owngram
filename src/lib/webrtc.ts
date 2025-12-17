@@ -35,17 +35,34 @@ export class WebRTCHandler {
 
   async initialize(isInitiator: boolean) {
     try {
-      // Get user media
+      // Get user media with explicit audio constraints
       this.localStream = await navigator.mediaDevices.getUserMedia({
         video: true,
-        audio: true,
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+      
+      // Ensure audio tracks are enabled
+      this.localStream.getAudioTracks().forEach(track => {
+        track.enabled = true
+        console.log('🎤 Audio track enabled:', track.label, track.enabled)
       })
 
-      // Create peer connection
+      // Create peer connection with multiple STUN/TURN servers for better connectivity
       this.peerConnection = new RTCPeerConnection({
         iceServers: [
           { urls: 'stun:stun.l.google.com:19302' },
           { urls: 'stun:stun1.l.google.com:19302' },
+          { urls: 'stun:stun2.l.google.com:19302' },
+          { urls: 'stun:stun3.l.google.com:19302' },
+          { urls: 'stun:stun4.l.google.com:19302' },
+          // Alternative STUN servers (work without VPN)
+          { urls: 'stun:stun.stunprotocol.org:3478' },
+          { urls: 'stun:stun.voiparound.com' },
+          { urls: 'stun:stun.voipbuster.com' },
         ],
       })
 
@@ -60,6 +77,11 @@ export class WebRTCHandler {
       this.peerConnection.ontrack = (event) => {
         if (event.streams && event.streams[0]) {
           this.remoteStream = event.streams[0]
+          // Ensure audio tracks are enabled
+          this.remoteStream.getAudioTracks().forEach(track => {
+            track.enabled = true
+            console.log('🔊 Remote audio track enabled:', track.label, track.enabled)
+          })
           this.onRemoteStream(this.remoteStream)
         }
       }

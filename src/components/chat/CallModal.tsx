@@ -45,6 +45,9 @@ export function CallModal({
   useEffect(() => {
     if (remoteVideoRef.current && remoteStream) {
       remoteVideoRef.current.srcObject = remoteStream
+      // Ensure audio is enabled
+      remoteVideoRef.current.volume = 1.0
+      remoteVideoRef.current.muted = false
     }
   }, [remoteStream])
 
@@ -60,6 +63,8 @@ export function CallModal({
               ref={remoteVideoRef}
               autoPlay
               playsInline
+              muted={false}
+              volume={1.0}
               className="w-full h-full object-cover"
             />
           ) : (
