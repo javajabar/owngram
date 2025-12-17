@@ -16,7 +16,7 @@ export default function LoginPage() {
   
   // OTP Modal state
   const [showOtpModal, setShowOtpModal] = useState(false)
-  const [otpCode, setOtpCode] = useState(['', '', '', '', '', ''])
+  const [otpCode, setOtpCode] = useState(['', '', '', '', '', '', '', ''])
   const [otpError, setOtpError] = useState<string | null>(null)
   const [otpLoading, setOtpLoading] = useState(false)
   const [countdown, setCountdown] = useState(0)
@@ -91,8 +91,8 @@ export default function LoginPage() {
   // Verify OTP code
   const handleVerifyOtp = async () => {
     const fullCode = otpCode.join('')
-    if (fullCode.length !== 6) {
-      setOtpError('Введите 6-значный код')
+    if (fullCode.length !== 8) {
+      setOtpError('Введите 8-значный код')
       return
     }
 
@@ -131,7 +131,7 @@ export default function LoginPage() {
       }
     } catch (err: any) {
       setOtpError(err.message || 'Неверный код')
-      setOtpCode(['', '', '', '', '', ''])
+      setOtpCode(['', '', '', '', '', '', '', ''])
       otpInputRefs.current[0]?.focus()
     } finally {
       setOtpLoading(false)
@@ -146,13 +146,13 @@ export default function LoginPage() {
     newCode[index] = value
     setOtpCode(newCode)
 
-    if (value && index < 5) {
+    if (value && index < 7) {
       otpInputRefs.current[index + 1]?.focus()
     }
 
-    if (value && index === 5) {
+    if (value && index === 7) {
       const fullCode = newCode.join('')
-      if (fullCode.length === 6) {
+      if (fullCode.length === 8) {
         setTimeout(() => handleVerifyOtp(), 100)
       }
     }
@@ -169,18 +169,18 @@ export default function LoginPage() {
 
   const handleOtpPaste = (e: React.ClipboardEvent) => {
     e.preventDefault()
-    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6)
+    const pastedData = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 8)
     if (pastedData) {
       const newCode = [...otpCode]
-      for (let i = 0; i < 6; i++) {
+      for (let i = 0; i < 8; i++) {
         newCode[i] = pastedData[i] || ''
       }
       setOtpCode(newCode)
       
-      const focusIndex = Math.min(pastedData.length, 5)
+      const focusIndex = Math.min(pastedData.length, 7)
       otpInputRefs.current[focusIndex]?.focus()
 
-      if (pastedData.length === 6) {
+      if (pastedData.length === 8) {
         setTimeout(() => handleVerifyOtp(), 100)
       }
     }
@@ -203,7 +203,7 @@ export default function LoginPage() {
       if (error) throw error
 
       setCountdown(60)
-      setOtpCode(['', '', '', '', '', ''])
+      setOtpCode(['', '', '', '', '', '', '', ''])
       otpInputRefs.current[0]?.focus()
     } catch (err: any) {
       setOtpError(err.message || 'Ошибка отправки кода')
@@ -336,7 +336,7 @@ export default function LoginPage() {
                 Подтверждение email
               </h3>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Введите 6-значный код, отправленный на<br />
+                Введите 8-значный код, отправленный на<br />
                 <span className="font-medium text-gray-900 dark:text-white">{pendingEmail}</span>
               </p>
             </div>
@@ -348,7 +348,7 @@ export default function LoginPage() {
             )}
 
             {/* Code input boxes */}
-            <div className="flex justify-center gap-2 mb-6" onPaste={handleOtpPaste}>
+            <div className="flex justify-center gap-1.5 mb-6" onPaste={handleOtpPaste}>
               {otpCode.map((digit, index) => (
                 <input
                   key={index}
@@ -359,14 +359,14 @@ export default function LoginPage() {
                   value={digit}
                   onChange={(e) => handleOtpChange(index, e.target.value)}
                   onKeyDown={(e) => handleOtpKeyDown(index, e)}
-                  className="w-12 h-14 text-center text-2xl font-bold border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                  className="w-10 h-12 text-center text-xl font-bold border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
                 />
               ))}
             </div>
 
             <button
               onClick={handleVerifyOtp}
-              disabled={otpLoading || otpCode.join('').length !== 6}
+              disabled={otpLoading || otpCode.join('').length !== 8}
               className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors mb-4"
             >
               {otpLoading ? 'Проверка...' : 'Подтвердить'}
@@ -388,7 +388,7 @@ export default function LoginPage() {
                 type="button"
                 onClick={() => {
                   setShowOtpModal(false)
-                  setOtpCode(['', '', '', '', '', ''])
+                  setOtpCode(['', '', '', '', '', '', '', ''])
                   setOtpError(null)
                 }}
                 className="text-sm text-gray-500 hover:text-gray-400"
