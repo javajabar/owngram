@@ -1106,7 +1106,7 @@ export function Sidebar() {
             ) : chats.length === 0 ? (
                 <div className="p-8 text-center text-gray-500">
                     <p className="mb-2">No chats yet.</p>
-                    <button onClick={() => setShowNewChat(true)} className="text-blue-500 hover:underline">Find friends</button>
+                    <p className="text-sm">Начните поиск выше</p>
                 </div>
             ) : (
                 <div className="flex flex-col">
