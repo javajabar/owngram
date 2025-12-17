@@ -94,6 +94,21 @@ class SoundManager {
       this.playTone(330, 0.1, 'sine', 0.12) // E4
     }, 80)
   }
+
+  // Incoming call sound - ringing tone
+  playIncomingCall(): void {
+    // Ringing pattern - two tones repeating
+    this.playTone(523.25, 0.2, 'sine', 0.25) // C5
+    setTimeout(() => {
+      this.playTone(659.25, 0.2, 'sine', 0.25) // E5
+    }, 200)
+  }
+
+  // Call answered sound - pleasant confirmation
+  playCallAnswered(): void {
+    // Upward chord confirming connection
+    this.playChord([523.25, 659.25, 783.99], 0.2, 'sine', 0.22) // C5, E5, G5
+  }
 }
 
 // Export singleton instance

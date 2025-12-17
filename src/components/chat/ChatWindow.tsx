@@ -482,6 +482,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
     try {
       setIsCalling(true)
+      // Play call sound
+      soundManager.playIncomingCall()
       
       // Send call request
       await supabase.from('call_signals').insert({
@@ -516,6 +518,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     try {
       setIsInCall(true)
       setIncomingCall(false)
+      // Play call answered sound
+      soundManager.playCallAnswered()
 
       // Send call accept
       await supabase.from('call_signals').insert({
@@ -575,10 +579,12 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
   // Handle incoming calls
   useEffect(() => {
-    if (!chatId || !user || chat?.type !== 'dm' || !otherUser) return
+    if (!chatId || !user || chat?.type !== 'dm') return
+
+    console.log('Setting up call listener for chat:', chatId, 'user:', user.id)
 
     const channel = supabase
-      .channel(`calls-${chatId}`)
+      .channel(`calls-${chatId}-${user.id}`)
       .on(
         'postgres_changes',
         {
@@ -589,31 +595,53 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         },
         async (payload) => {
           const signal = payload.new as any
-          if (signal.from_user_id === otherUser.id && signal.to_user_id === user.id) {
+          console.log('Call signal received:', signal)
+          
+          // Check if this signal is for current user
+          if (signal.to_user_id === user.id) {
             if (signal.signal_type === 'call-request') {
+              console.log('Incoming call request from:', signal.from_user_id)
+              // Fetch other user info if not available
+              if (!otherUser || otherUser.id !== signal.from_user_id) {
+                supabase.from('profiles')
+                  .select('*')
+                  .eq('id', signal.from_user_id)
+                  .single()
+                  .then(({ data }) => {
+                    if (data) {
+                      setOtherUser(data as Profile)
+                    }
+                  })
+              }
               setIncomingCall(true)
-              // Play notification sound for incoming call
-              soundManager.playMessageReceived()
-            } else if (signal.signal_type === 'call-accept' && isCalling) {
-              setIsInCall(true)
-              setIsCalling(false)
-              // Initialize WebRTC as answerer
-              try {
-                const handler = new WebRTCHandler(
-                  user.id,
-                  otherUser.id,
-                  chatId,
-                  (stream) => setRemoteStream(stream),
-                  handleEndCall
-                )
-                webrtcHandlerRef.current = handler
-                const stream = await handler.initialize(false)
-                setLocalStream(stream)
-              } catch (error) {
-                console.error('Error accepting call:', error)
-                handleEndCall()
+              // Play incoming call sound
+              soundManager.playIncomingCall()
+            } else if (signal.signal_type === 'call-accept') {
+              console.log('Call accepted by:', signal.from_user_id)
+              if (isCalling) {
+                setIsInCall(true)
+                setIsCalling(false)
+                // Play call answered sound
+                soundManager.playCallAnswered()
+                // Initialize WebRTC as answerer (we initiated, they accepted)
+                try {
+                  const handler = new WebRTCHandler(
+                    user.id,
+                    signal.from_user_id,
+                    chatId,
+                    (stream) => setRemoteStream(stream),
+                    handleEndCall
+                  )
+                  webrtcHandlerRef.current = handler
+                  const stream = await handler.initialize(false)
+                  setLocalStream(stream)
+                } catch (error) {
+                  console.error('Error accepting call:', error)
+                  handleEndCall()
+                }
               }
             } else if (signal.signal_type === 'call-reject' || signal.signal_type === 'call-end') {
+              console.log('Call rejected/ended')
               handleEndCall()
             }
           }
@@ -626,7 +654,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [chatId, user, otherUser, chat, isCalling])
+  }, [chatId, user, chat, isCalling])
 
   const markAsRead = async (messageId: string) => {
       try {
