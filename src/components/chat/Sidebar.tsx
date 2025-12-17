@@ -707,14 +707,8 @@ export function Sidebar() {
     }
   }, [user, chats])
 
-  // Search logic
+  // Search users logic
   useEffect(() => {
-      if (!showNewChat) {
-          setUsers([])
-          setSearchQuery('')
-          return
-      }
-
       const searchUsers = async () => {
           if (!user) return
           
@@ -749,7 +743,7 @@ export function Sidebar() {
       // Debounce search
       const timer = setTimeout(searchUsers, 300)
       return () => clearTimeout(timer)
-  }, [searchQuery, showNewChat, user])
+  }, [searchQuery, user])
 
   const createChat = async (otherUserId: string) => {
       if (!user) return
@@ -778,8 +772,8 @@ export function Sidebar() {
                 // Found existing DM
                 const existingChatId = commonChats[0].chat_id
                 router.push(`/chat/${existingChatId}`)
-                setShowNewChat(false)
                 setSearchQuery('')
+                setUsers([])
                 return
             }
         }
