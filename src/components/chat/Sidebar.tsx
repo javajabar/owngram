@@ -671,7 +671,7 @@ export function Sidebar() {
                 filter: `id=eq.${userId}`
             }, (payload) => {
                 const updated = payload.new as Profile
-                // Only process if last_seen_at exists
+                // Immediately update status when we get real-time update
                 if ('last_seen_at' in updated && updated.last_seen_at) {
                     const lastSeen = new Date(updated.last_seen_at)
                     const now = new Date()
@@ -683,6 +683,13 @@ export function Sidebar() {
                         } else {
                             next.delete(updated.id)
                         }
+                        return next
+                    })
+                } else {
+                    // If last_seen_at is null, user is offline
+                    setOnlineUsers(prev => {
+                        const next = new Set(prev)
+                        next.delete(updated.id)
                         return next
                     })
                 }

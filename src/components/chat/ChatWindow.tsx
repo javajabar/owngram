@@ -103,8 +103,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       })
       .subscribe()
     
-    // Check status every 30 seconds
-    const interval = setInterval(checkOnlineStatus, 30000)
+    // Check status every 10 seconds (быстрее обновление)
+    const interval = setInterval(checkOnlineStatus, 10000)
     
     return () => {
       supabase.removeChannel(channel)
