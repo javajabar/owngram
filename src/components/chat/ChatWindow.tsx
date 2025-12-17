@@ -463,6 +463,12 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
   // Call handlers (defined before useEffect to avoid dependency issues)
   const handleEndCall = async () => {
+    // Stop ringing sound
+    soundManager.stopCallRinging()
+    
+    // Play call ended sound
+    soundManager.playCallEnded()
+    
     if (webrtcHandlerRef.current) {
       await webrtcHandlerRef.current.endCall()
       webrtcHandlerRef.current = null
@@ -481,18 +487,28 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     if (!user || !otherUser || !chatId || chat?.type !== 'dm') return
 
     try {
+      console.log('📞 Starting call to:', otherUser.id, 'in chat:', chatId)
       setIsCalling(true)
-      // Play call sound
-      soundManager.playIncomingCall()
+      // Start ringing sound (will repeat until answered/rejected)
+      soundManager.startCallRinging()
       
       // Send call request
-      await supabase.from('call_signals').insert({
+      const { data, error } = await supabase.from('call_signals').insert({
         chat_id: chatId,
         from_user_id: user.id,
         to_user_id: otherUser.id,
         signal_type: 'call-request',
         created_at: new Date().toISOString(),
-      })
+      }).select()
+
+      if (error) {
+        console.error('❌ Error sending call request:', error)
+        alert('Ошибка при отправке звонка: ' + error.message)
+        setIsCalling(false)
+        return
+      }
+
+      console.log('✅ Call request sent successfully:', data)
 
       // Initialize WebRTC as initiator
       const handler = new WebRTCHandler(
@@ -516,6 +532,9 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     if (!user || !otherUser || !chatId) return
 
     try {
+      // Stop ringing sound
+      soundManager.stopCallRinging()
+      
       setIsInCall(true)
       setIncomingCall(false)
       // Play call answered sound
@@ -551,6 +570,9 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const handleRejectCall = async () => {
     if (!user || !otherUser || !chatId) return
 
+    // Stop ringing sound
+    soundManager.stopCallRinging()
+
     // Send call reject
     await supabase.from('call_signals').insert({
       chat_id: chatId,
@@ -581,7 +603,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   useEffect(() => {
     if (!chatId || !user || chat?.type !== 'dm') return
 
-    console.log('Setting up call listener for chat:', chatId, 'user:', user.id)
+    console.log('🔔 Setting up call listener for chat:', chatId, 'user:', user.id)
 
     const channel = supabase
       .channel(`calls-${chatId}-${user.id}`)
@@ -595,29 +617,44 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         },
         async (payload) => {
           const signal = payload.new as any
-          console.log('Call signal received:', signal)
+          console.log('📞 Call signal received:', {
+            type: signal.signal_type,
+            from: signal.from_user_id,
+            to: signal.to_user_id,
+            currentUser: user.id,
+            isForMe: signal.to_user_id === user.id
+          })
           
           // Check if this signal is for current user
           if (signal.to_user_id === user.id) {
+            console.log('✅ Signal is for me! Processing...')
             if (signal.signal_type === 'call-request') {
-              console.log('Incoming call request from:', signal.from_user_id)
+              console.log('📞 Incoming call request from:', signal.from_user_id)
               // Fetch other user info if not available
               if (!otherUser || otherUser.id !== signal.from_user_id) {
+                console.log('📥 Fetching caller profile...')
                 supabase.from('profiles')
                   .select('*')
                   .eq('id', signal.from_user_id)
                   .single()
-                  .then(({ data }) => {
-                    if (data) {
+                  .then(({ data, error }) => {
+                    if (error) {
+                      console.error('Error fetching caller profile:', error)
+                    } else if (data) {
+                      console.log('✅ Caller profile loaded:', data)
                       setOtherUser(data as Profile)
                     }
                   })
               }
+              console.log('🔔 Setting incoming call state...')
               setIncomingCall(true)
-              // Play incoming call sound
-              soundManager.playIncomingCall()
+              // Start ringing sound (will repeat until answered/rejected)
+              soundManager.startCallRinging()
             } else if (signal.signal_type === 'call-accept') {
-              console.log('Call accepted by:', signal.from_user_id)
+              console.log('✅ Call accepted by:', signal.from_user_id)
+              // Stop ringing sound
+              soundManager.stopCallRinging()
+              
               if (isCalling) {
                 setIsInCall(true)
                 setIsCalling(false)
@@ -641,20 +678,78 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 }
               }
             } else if (signal.signal_type === 'call-reject' || signal.signal_type === 'call-end') {
-              console.log('Call rejected/ended')
+              console.log('❌ Call rejected/ended')
+              // Stop ringing sound
+              soundManager.stopCallRinging()
               handleEndCall()
             }
+          } else {
+            console.log('⏭️ Signal is not for me, ignoring')
           }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('📡 Call channel subscription status:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to call signals')
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Error subscribing to call signals')
+        }
+      })
 
     callChannelRef.current = channel
 
+    // Fallback: Poll for missed signals every 2 seconds (in case Realtime doesn't work)
+    const pollInterval = setInterval(async () => {
+      try {
+        const { data: signals, error } = await supabase
+          .from('call_signals')
+          .select('*')
+          .eq('chat_id', chatId)
+          .eq('to_user_id', user.id)
+          .eq('signal_type', 'call-request')
+          .order('created_at', { ascending: false })
+          .limit(1)
+
+        if (error) {
+          console.error('Error polling for calls:', error)
+          return
+        }
+
+        if (signals && signals.length > 0) {
+          const signal = signals[0]
+          // Check if signal is recent (within last 10 seconds) and we haven't processed it
+          const signalTime = new Date(signal.created_at).getTime()
+          const now = Date.now()
+          if (now - signalTime < 10000 && !incomingCall && !isCalling && !isInCall) {
+            console.log('📞 Found missed call signal via polling:', signal)
+            // Process the signal
+            if (!otherUser || otherUser.id !== signal.from_user_id) {
+              supabase.from('profiles')
+                .select('*')
+                .eq('id', signal.from_user_id)
+                .single()
+                .then(({ data }) => {
+                  if (data) {
+                    setOtherUser(data as Profile)
+                  }
+                })
+            }
+            setIncomingCall(true)
+            soundManager.playIncomingCall()
+          }
+        }
+      } catch (error) {
+        console.error('Error in call polling:', error)
+      }
+    }, 2000)
+
     return () => {
+      console.log('🧹 Cleaning up call listener')
+      clearInterval(pollInterval)
       supabase.removeChannel(channel)
     }
-  }, [chatId, user, chat, isCalling])
+  }, [chatId, user, chat, isCalling, incomingCall, isInCall, otherUser])
 
   const markAsRead = async (messageId: string) => {
       try {

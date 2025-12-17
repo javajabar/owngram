@@ -109,6 +109,38 @@ class SoundManager {
     // Upward chord confirming connection
     this.playChord([523.25, 659.25, 783.99], 0.2, 'sine', 0.22) // C5, E5, G5
   }
+
+  // Call ended sound - gentle ending tone
+  playCallEnded(): void {
+    // Downward tone indicating call end
+    this.playTone(659.25, 0.15, 'sine', 0.2) // E5
+    setTimeout(() => {
+      this.playTone(523.25, 0.2, 'sine', 0.18) // C5
+    }, 150)
+  }
+
+  // Call ringing sound - repeating pattern (like phone ringing)
+  private ringingInterval: NodeJS.Timeout | null = null
+
+  startCallRinging(): void {
+    // Stop any existing ringing
+    this.stopCallRinging()
+    
+    // Play immediately
+    this.playIncomingCall()
+    
+    // Then repeat every 3 seconds
+    this.ringingInterval = setInterval(() => {
+      this.playIncomingCall()
+    }, 3000)
+  }
+
+  stopCallRinging(): void {
+    if (this.ringingInterval) {
+      clearInterval(this.ringingInterval)
+      this.ringingInterval = null
+    }
+  }
 }
 
 // Export singleton instance
