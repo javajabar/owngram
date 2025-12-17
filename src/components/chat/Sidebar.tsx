@@ -309,8 +309,8 @@ export function Sidebar() {
             schema: 'public', 
             table: 'messages' 
         }, async (payload) => {
-            // Only play sound if message is not from current user and not in current chat
             const message = payload.new as any
+            
             // Get current chat ID dynamically
             const currentPathChatId = typeof window !== 'undefined' 
                 ? (() => {
@@ -322,30 +322,58 @@ export function Sidebar() {
                 })()
                 : null
             
+            // Play sound if message is not from current user and not in current chat
             if (message.sender_id !== user.id && message.chat_id !== currentPathChatId) {
                 playNotificationSound()
             }
             
-            // Debounce fetchChats to avoid too many requests when multiple messages arrive
-            if (fetchTimeoutRef.current) {
-                clearTimeout(fetchTimeoutRef.current)
-            }
-            fetchTimeoutRef.current = setTimeout(() => {
-                fetchChats()
-            }, 150) // Wait 150ms to batch updates (reduced for faster UI updates)
+            // Quick update: just update the lastMessage for this chat in state
+            setChats(prevChats => {
+                const chatIndex = prevChats.findIndex(c => c.id === message.chat_id)
+                if (chatIndex === -1) {
+                    // New chat - do full refresh
+                    fetchChats()
+                    return prevChats
+                }
+                
+                const updatedChats = [...prevChats]
+                const chat = { ...updatedChats[chatIndex] }
+                
+                // Update last message
+                chat.lastMessage = {
+                    ...message,
+                    sender: message.sender_id === user.id ? myProfile : chat.otherUser
+                }
+                
+                // Update unread count if not from me and not currently viewing
+                if (message.sender_id !== user.id && message.chat_id !== currentPathChatId) {
+                    chat.unreadCount = (chat.unreadCount || 0) + 1
+                }
+                
+                updatedChats[chatIndex] = chat
+                
+                // Re-sort by last message time
+                updatedChats.sort((a, b) => {
+                    const timeA = a.lastMessage?.created_at || a.created_at
+                    const timeB = b.lastMessage?.created_at || b.created_at
+                    return new Date(timeB).getTime() - new Date(timeA).getTime()
+                })
+                
+                return updatedChats
+            })
         })
         .on('postgres_changes', { 
             event: 'UPDATE', 
             schema: 'public', 
             table: 'messages' 
         }, () => {
-            // Debounce fetchChats for updates too
+            // For updates (read status, edits), do a quick refresh
             if (fetchTimeoutRef.current) {
                 clearTimeout(fetchTimeoutRef.current)
             }
             fetchTimeoutRef.current = setTimeout(() => {
                 fetchChats()
-            }, 150)
+            }, 500)
         })
         .subscribe()
         
