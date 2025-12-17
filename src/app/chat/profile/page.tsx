@@ -6,6 +6,7 @@ import { useAuthStore } from '@/store/useAuthStore'
 import { Profile } from '@/types'
 import { X, Camera, Save, ArrowLeft } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { ImageCropper } from '@/components/ImageCropper'
 
 export default function ProfilePage() {
   const { user } = useAuthStore()
@@ -23,6 +24,10 @@ export default function ProfilePage() {
   const [newEmail, setNewEmail] = useState('')
   const [isChangingEmail, setIsChangingEmail] = useState(false)
   const [emailChangeLoading, setEmailChangeLoading] = useState(false)
+  
+  // Image cropper state
+  const [showCropper, setShowCropper] = useState(false)
+  const [selectedImage, setSelectedImage] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user) return
@@ -170,35 +175,17 @@ export default function ProfilePage() {
                             type="file"
                             accept="image/*"
                             className="absolute inset-0 opacity-0 cursor-pointer"
-                            onChange={async (e) => {
+                            onChange={(e) => {
                                 const file = e.target.files?.[0]
-                                if (!file || !user) return
-
-                                try {
-                                    // 1. Upload to Supabase
-                                    const fileExt = file.name.split('.').pop()
-                                    const fileName = `${user.id}-${Date.now()}.${fileExt}`
-                                    const { error: uploadError } = await supabase.storage
-                                        .from('chat-attachments') // We can reuse this bucket or create 'avatars'
-                                        .upload(`avatars/${fileName}`, file)
-
-                                    if (uploadError) {
-                                        console.error('Upload error:', uploadError)
-                                        alert('Error uploading avatar')
-                                        return
-                                    }
-
-                                    // 2. Get Public URL
-                                    const { data: { publicUrl } } = supabase.storage
-                                        .from('chat-attachments')
-                                        .getPublicUrl(`avatars/${fileName}`)
-
-                                    // 3. Update state
-                                    setAvatarUrl(publicUrl)
-                                } catch (err) {
-                                    console.error('Error handling file:', err)
-                                    alert('Error updating avatar')
-                                }
+                                if (!file) return
+                                
+                                // Create URL for cropper
+                                const imageUrl = URL.createObjectURL(file)
+                                setSelectedImage(imageUrl)
+                                setShowCropper(true)
+                                
+                                // Reset input
+                                e.target.value = ''
                             }}
                         />
                     </div>
@@ -303,6 +290,49 @@ export default function ProfilePage() {
                 {saving ? 'Saving...' : <><Save className="w-5 h-5" /> Save Changes</>}
             </button>
         </div>
+        
+        {/* Image Cropper Modal */}
+        {showCropper && selectedImage && (
+            <ImageCropper
+                imageUrl={selectedImage}
+                onCancel={() => {
+                    setShowCropper(false)
+                    setSelectedImage(null)
+                }}
+                onCrop={async (blob) => {
+                    if (!user) return
+                    
+                    try {
+                        // Upload cropped image
+                        const fileName = `${user.id}-${Date.now()}.png`
+                        const { error: uploadError } = await supabase.storage
+                            .from('chat-attachments')
+                            .upload(`avatars/${fileName}`, blob, {
+                                contentType: 'image/png'
+                            })
+                        
+                        if (uploadError) {
+                            console.error('Upload error:', uploadError)
+                            alert('Ошибка загрузки фото')
+                            return
+                        }
+                        
+                        // Get public URL
+                        const { data: { publicUrl } } = supabase.storage
+                            .from('chat-attachments')
+                            .getPublicUrl(`avatars/${fileName}`)
+                        
+                        // Update state
+                        setAvatarUrl(publicUrl)
+                        setShowCropper(false)
+                        setSelectedImage(null)
+                    } catch (err) {
+                        console.error('Error uploading avatar:', err)
+                        alert('Ошибка загрузки фото')
+                    }
+                }}
+            />
+        )}
     </div>
   )
 }

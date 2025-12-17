@@ -8,6 +8,29 @@ import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X } from 'lucide
 import { useRouter } from 'next/navigation'
 import { MessageBubble } from './MessageBubble'
 
+// Format last seen time
+function formatLastSeen(dateStr: string): string {
+  const date = new Date(dateStr)
+  const now = new Date()
+  const diffMs = now.getTime() - date.getTime()
+  const diffMins = Math.floor(diffMs / 60000)
+  const diffHours = Math.floor(diffMs / 3600000)
+  const diffDays = Math.floor(diffMs / 86400000)
+  
+  if (diffMins < 1) return 'только что'
+  if (diffMins < 60) return `${diffMins} мин назад`
+  if (diffHours < 24) return `${diffHours} ч назад`
+  if (diffDays === 1) return 'вчера'
+  if (diffDays < 7) return `${diffDays} дн назад`
+  
+  return date.toLocaleDateString('ru-RU', { 
+    day: 'numeric', 
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
 export function ChatWindow({ chatId }: { chatId: string }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState('')
@@ -21,10 +44,90 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [replyingTo, setReplyingTo] = useState<Message | null>(null)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [showProfile, setShowProfile] = useState(false)
+  const [isOnline, setIsOnline] = useState(false)
+  const [lastSeen, setLastSeen] = useState<string | null>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { user } = useAuthStore()
   const router = useRouter()
+  
+  // Update my online status periodically
+  useEffect(() => {
+    if (!user) return
+    
+    const updateMyStatus = async () => {
+      await supabase
+        .from('profiles')
+        .update({ last_seen_at: new Date().toISOString() })
+        .eq('id', user.id)
+    }
+    
+    // Update immediately
+    updateMyStatus()
+    
+    // Update every 30 seconds
+    const interval = setInterval(updateMyStatus, 30000)
+    
+    // Update on activity
+    const handleActivity = () => updateMyStatus()
+    window.addEventListener('mousemove', handleActivity, { passive: true })
+    window.addEventListener('keydown', handleActivity, { passive: true })
+    
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('mousemove', handleActivity)
+      window.removeEventListener('keydown', handleActivity)
+    }
+  }, [user])
+  
+  // Check other user's online status
+  useEffect(() => {
+    if (!otherUser || otherUser.id === user?.id) return
+    
+    const checkOnlineStatus = () => {
+      if (otherUser.last_seen_at) {
+        const lastSeenDate = new Date(otherUser.last_seen_at)
+        const now = new Date()
+        const diffMinutes = (now.getTime() - lastSeenDate.getTime()) / 60000
+        
+        setIsOnline(diffMinutes < 2) // Online if active in last 2 minutes
+        setLastSeen(otherUser.last_seen_at)
+      } else {
+        setIsOnline(false)
+        setLastSeen(null)
+      }
+    }
+    
+    checkOnlineStatus()
+    
+    // Subscribe to profile changes
+    const channel = supabase.channel(`profile:${otherUser.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'profiles',
+        filter: `id=eq.${otherUser.id}`
+      }, (payload) => {
+        const updated = payload.new as Profile
+        setOtherUser(prev => prev ? { ...prev, ...updated } : null)
+        if (updated.last_seen_at) {
+          const lastSeenDate = new Date(updated.last_seen_at)
+          const now = new Date()
+          const diffMinutes = (now.getTime() - lastSeenDate.getTime()) / 60000
+          setIsOnline(diffMinutes < 2)
+          setLastSeen(updated.last_seen_at)
+        }
+      })
+      .subscribe()
+    
+    // Check status every 30 seconds
+    const interval = setInterval(checkOnlineStatus, 30000)
+    
+    return () => {
+      supabase.removeChannel(channel)
+      clearInterval(interval)
+    }
+  }, [otherUser?.id, user?.id])
   
   // --- Native Audio Recording Logic ---
   const startRecording = async () => {
@@ -502,8 +605,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                 <span className="animate-bounce" style={{ animationDelay: '400ms', animationDuration: '1.4s' }}>.</span>
                             </span>
                         </span>
+                    ) : chat?.name === 'Избранное' ? (
+                        <span className="text-gray-400">заметки для себя</span>
+                    ) : isOnline ? (
+                        <span className="text-green-500 transition-colors duration-300">в сети</span>
+                    ) : lastSeen ? (
+                        <span className="text-gray-400 transition-colors duration-300">
+                            был(а) {formatLastSeen(lastSeen)}
+                        </span>
                     ) : (
-                        <span className="text-green-500 transition-colors duration-300">Online</span>
+                        <span className="text-gray-400">не в сети</span>
                     )}
                 </div>
             </div>
