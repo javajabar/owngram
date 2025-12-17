@@ -58,61 +58,14 @@ export async function middleware(request: NextRequest) {
     data: { session },
   } = await supabase.auth.getSession()
 
-  // Protect chat routes
-  // Check all cookies for any Supabase auth-related cookies
-  // This helps when cookies are being set but session hasn't synced yet
-  const allCookies = request.cookies.getAll()
-  const hasSupabaseCookie = allCookies.some(cookie => 
-    cookie.name.includes('supabase') || 
-    cookie.name.includes('sb-') ||
-    cookie.name.includes('auth-token') ||
-    cookie.name.includes('access-token') ||
-    cookie.name.includes('refresh-token')
-  )
-  
-  // Check if user just logged in (via cookie or referer)
-  const referer = request.headers.get('referer')
-  const isFromLogin = referer?.includes('/login')
-  const isFromChat = referer?.includes('/chat') // Navigation within chat
-  const justLoggedIn = request.cookies.get('justLoggedIn')?.value === 'true'
-  
-  // For chat routes, protect them properly:
-  // - Always allow if session exists
-  // - Allow if Supabase cookies exist (session might be syncing)
-  // - Allow if coming from login (just logged in)
-  // - Allow if navigating within chat (user is already in chat area)
-  // - Allow if page refresh (no referer or same origin referer) - let client handle auth
-  // - Redirect to login only if definitely no auth and external access
+  // Protect chat routes - strict check
   if (request.nextUrl.pathname.startsWith('/chat')) {
-    // Check if this is a page refresh (no referer or same origin)
-    const isPageRefresh = !referer || referer.includes(request.nextUrl.origin)
-    
-    const shouldAllow = session || 
-                       hasSupabaseCookie || 
-                       isFromLogin || 
-                       justLoggedIn || 
-                       isFromChat ||
-                       isPageRefresh // Allow page refresh - client will handle auth check
-    
-    // Only redirect if we're absolutely sure there's no auth AND it's not a page refresh
-    if (!shouldAllow && !isPageRefresh) {
-      // External access without auth - redirect to login
+    // Only allow if session exists
+    if (!session) {
       return NextResponse.redirect(new URL('/login', request.url))
     }
-    // Otherwise, allow access (client-side will handle auth state)
   }
   
-  // Clear the justLoggedIn cookie after checking (one-time use)
-  if (justLoggedIn) {
-    response.cookies.set('justLoggedIn', '', { maxAge: 0 })
-  }
-  
-  // If coming from login but no session yet, allow access (cookies might be syncing)
-  // The client-side will handle showing appropriate UI if session is missing
-
-  // Don't automatically redirect from /login to avoid redirect loops
-  // Let the client-side handle navigation after successful login
-  // This prevents issues when cookies are still syncing
 
   // Redirect root to appropriate page based on auth status
   if (request.nextUrl.pathname === '/') {

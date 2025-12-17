@@ -17,7 +17,10 @@ export function Sidebar() {
     const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chatId: string } | null>(null)
     const [savedMessagesChecked, setSavedMessagesChecked] = useState(false)
+    const [userChatIds, setUserChatIds] = useState<string[]>([])
+    const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set())
     const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+    const chatsRef = useRef<Chat[]>([])
     const router = useRouter()
     const { user, signOut } = useAuthStore()
 
@@ -160,6 +163,38 @@ export function Sidebar() {
                 return new Date(timeB).getTime() - new Date(timeA).getTime()
             })
             setChats(validChats)
+            chatsRef.current = validChats
+            
+            // Update online status for other users
+            const otherUserIds = new Set<string>()
+            validChats.forEach(chat => {
+                if (chat.type === 'dm' && chat.otherUser && chat.otherUser.id !== user.id) {
+                    otherUserIds.add(chat.otherUser.id)
+                }
+            })
+            
+            // Check online status for all other users
+            if (otherUserIds.size > 0) {
+                const { data: profiles } = await supabase
+                    .from('profiles')
+                    .select('id, last_seen_at')
+                    .in('id', Array.from(otherUserIds))
+                
+                if (profiles) {
+                    const now = new Date()
+                    const onlineSet = new Set<string>()
+                    profiles.forEach(profile => {
+                        if (profile.last_seen_at) {
+                            const lastSeen = new Date(profile.last_seen_at)
+                            const diffMinutes = (now.getTime() - lastSeen.getTime()) / 60000
+                            if (diffMinutes < 2) {
+                                onlineSet.add(profile.id)
+                            }
+                        }
+                    })
+                    setOnlineUsers(onlineSet)
+                }
+            }
         }
     }
 
@@ -255,6 +290,35 @@ export function Sidebar() {
     }
   }
 
+  // Update online status globally
+  useEffect(() => {
+    if (!user) return
+    
+    const updateMyStatus = async () => {
+      await supabase
+        .from('profiles')
+        .update({ last_seen_at: new Date().toISOString() })
+        .eq('id', user.id)
+    }
+    
+    // Update immediately
+    updateMyStatus()
+    
+    // Update every 30 seconds
+    const interval = setInterval(updateMyStatus, 30000)
+    
+    // Update on activity
+    const handleActivity = () => updateMyStatus()
+    window.addEventListener('mousemove', handleActivity, { passive: true })
+    window.addEventListener('keydown', handleActivity, { passive: true })
+    
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('mousemove', handleActivity)
+      window.removeEventListener('keydown', handleActivity)
+    }
+  }, [user])
+
   useEffect(() => {
     if (!user) return
     
@@ -300,6 +364,22 @@ export function Sidebar() {
       }
     }
 
+    // Request notification permission on mount
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission()
+    }
+
+    // Get user's chat IDs for filtering
+    supabase
+        .from('chat_members')
+        .select('chat_id')
+        .eq('user_id', user.id)
+        .then(({ data }) => {
+            if (data) {
+                setUserChatIds(data.map(m => m.chat_id))
+            }
+        })
+    
     const channel = supabase.channel('sidebar_chats')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_members', filter: `user_id=eq.${user.id}` }, () => {
             fetchChats()
@@ -307,9 +387,23 @@ export function Sidebar() {
         .on('postgres_changes', { 
             event: 'INSERT', 
             schema: 'public', 
-            table: 'messages' 
+            table: 'messages'
         }, async (payload) => {
             const message = payload.new as any
+            
+            // Skip deleted messages
+            if (message.deleted_at && message.deleted_for_all) return
+            
+            // Check if user is a member of this chat (client-side filter)
+            // Double-check by querying
+            const { data: memberCheck } = await supabase
+                .from('chat_members')
+                .select('chat_id')
+                .eq('chat_id', message.chat_id)
+                .eq('user_id', user.id)
+                .maybeSingle()
+            
+            if (!memberCheck) return // Not a member, ignore
             
             // Get current chat ID dynamically
             const currentPathChatId = typeof window !== 'undefined' 
@@ -322,14 +416,43 @@ export function Sidebar() {
                 })()
                 : null
             
-            // Play sound if message is not from current user and not in current chat
-            if (message.sender_id !== user.id && message.chat_id !== currentPathChatId) {
-                playNotificationSound()
+            // Fetch full message with sender info
+            const { data: fullMessage } = await supabase
+                .from('messages')
+                .select('*, sender:profiles(*)')
+                .eq('id', message.id)
+                .single()
+            
+            if (!fullMessage) {
+                // If we can't fetch full message, do a full refresh
+                fetchChats()
+                return
             }
             
-            // Quick update: just update the lastMessage for this chat in state
+            // Play sound and show notification if message is not from current user and not in current chat
+            if (fullMessage.sender_id !== user.id && fullMessage.chat_id !== currentPathChatId) {
+                playNotificationSound()
+                // Show browser notification only if page is not focused
+                if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+                    const senderName = (fullMessage.sender as any)?.full_name || 
+                                     (fullMessage.sender as any)?.username?.replace(/^@+/, '') || 
+                                     'Someone'
+                    const content = fullMessage.attachments?.length > 0 
+                        ? (fullMessage.attachments[0].type === 'voice' ? '🎤 Голосовое сообщение' : '📎 Вложение')
+                        : fullMessage.content
+                    
+                    new Notification(`${senderName}`, {
+                        body: content,
+                        icon: (fullMessage.sender as any)?.avatar_url || '/favicon.ico',
+                        tag: fullMessage.chat_id,
+                        requireInteraction: false
+                    })
+                }
+            }
+            
+            // Update chat in state
             setChats(prevChats => {
-                const chatIndex = prevChats.findIndex(c => c.id === message.chat_id)
+                const chatIndex = prevChats.findIndex(c => c.id === fullMessage.chat_id)
                 if (chatIndex === -1) {
                     // New chat - do full refresh
                     fetchChats()
@@ -339,15 +462,15 @@ export function Sidebar() {
                 const updatedChats = [...prevChats]
                 const chat = { ...updatedChats[chatIndex] }
                 
-                // Update last message
-                chat.lastMessage = {
-                    ...message,
-                    sender: message.sender_id === user.id ? myProfile : chat.otherUser
-                }
+                // Update last message with full data
+                chat.lastMessage = fullMessage
                 
                 // Update unread count if not from me and not currently viewing
-                if (message.sender_id !== user.id && message.chat_id !== currentPathChatId) {
+                if (fullMessage.sender_id !== user.id && fullMessage.chat_id !== currentPathChatId) {
                     chat.unreadCount = (chat.unreadCount || 0) + 1
+                } else if (fullMessage.chat_id === currentPathChatId) {
+                    // If viewing this chat, unread count should be 0
+                    chat.unreadCount = 0
                 }
                 
                 updatedChats[chatIndex] = chat
@@ -365,9 +488,44 @@ export function Sidebar() {
         .on('postgres_changes', { 
             event: 'UPDATE', 
             schema: 'public', 
-            table: 'messages' 
-        }, () => {
-            // For updates (read status, edits), do a quick refresh
+            table: 'messages'
+        }, async (payload) => {
+            const updatedMessage = payload.new as any
+            
+            // Check if user is a member of this chat
+            const { data: memberCheck } = await supabase
+                .from('chat_members')
+                .select('chat_id')
+                .eq('chat_id', updatedMessage.chat_id)
+                .eq('user_id', user.id)
+                .maybeSingle()
+            
+            if (!memberCheck) return
+            
+            // Update chat in state immediately for read status
+            setChats(prevChats => {
+                const chatIndex = prevChats.findIndex(c => c.id === updatedMessage.chat_id)
+                if (chatIndex === -1) return prevChats
+                
+                const updatedChats = [...prevChats]
+                const chat = { ...updatedChats[chatIndex] }
+                
+                // If this is the last message, update it
+                if (chat.lastMessage?.id === updatedMessage.id) {
+                    chat.lastMessage = { ...chat.lastMessage, ...updatedMessage }
+                }
+                
+                // If message was deleted, refresh
+                if (updatedMessage.deleted_at && updatedMessage.deleted_for_all) {
+                    fetchChats()
+                    return prevChats
+                }
+                
+                updatedChats[chatIndex] = chat
+                return updatedChats
+            })
+            
+            // Debounced full refresh for other updates
             if (fetchTimeoutRef.current) {
                 clearTimeout(fetchTimeoutRef.current)
             }
@@ -384,7 +542,54 @@ export function Sidebar() {
             clearTimeout(fetchTimeoutRef.current)
         }
     }
-  }, [user])
+  }, [user, myProfile])
+  
+  // Subscribe to profile updates for online status (separate effect)
+  useEffect(() => {
+    if (!user || chats.length === 0) return
+    
+    const profileChannels: any[] = []
+    const otherUserIds = new Set<string>()
+    
+    chats.forEach(chat => {
+        if (chat.type === 'dm' && chat.otherUser && chat.otherUser.id !== user.id) {
+            otherUserIds.add(chat.otherUser.id)
+        }
+    })
+    
+    // Subscribe to updates for all other users
+    otherUserIds.forEach(userId => {
+        const profileChannel = supabase.channel(`profile_status:${userId}`)
+            .on('postgres_changes', {
+                event: 'UPDATE',
+                schema: 'public',
+                table: 'profiles',
+                filter: `id=eq.${userId}`
+            }, (payload) => {
+                const updated = payload.new as Profile
+                if (updated.last_seen_at) {
+                    const lastSeen = new Date(updated.last_seen_at)
+                    const now = new Date()
+                    const diffMinutes = (now.getTime() - lastSeen.getTime()) / 60000
+                    setOnlineUsers(prev => {
+                        const next = new Set(prev)
+                        if (diffMinutes < 2) {
+                            next.add(updated.id)
+                        } else {
+                            next.delete(updated.id)
+                        }
+                        return next
+                    })
+                }
+            })
+            .subscribe()
+        profileChannels.push(profileChannel)
+    })
+    
+    return () => {
+        profileChannels.forEach(ch => supabase.removeChannel(ch))
+    }
+  }, [user, chats])
 
   // Search logic
   useEffect(() => {
@@ -692,13 +897,17 @@ export function Sidebar() {
                                     className="flex items-center gap-3 flex-1 min-w-0"
                                 >
                                     {/* Avatar */}
-                                    <div className="w-14 h-14 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700">
+                                    <div className="relative w-14 h-14 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700">
                                         {avatarUrl ? (
                                             <img src={avatarUrl} className="w-full h-full object-cover" alt={displayName} />
                                         ) : (
                                             <span className="text-gray-600 dark:text-gray-300 font-semibold text-lg">
                                                 {displayName[0]?.toUpperCase() || '?'}
                                             </span>
+                                        )}
+                                        {/* Online indicator */}
+                                        {chat.type === 'dm' && chat.otherUser && chat.otherUser.id !== user?.id && onlineUsers.has(chat.otherUser.id) && (
+                                            <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full"></div>
                                         )}
                                     </div>
                                     

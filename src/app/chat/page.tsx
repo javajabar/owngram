@@ -1,8 +1,39 @@
 'use client'
 
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Sidebar } from '@/components/chat/Sidebar'
+import { useAuthStore } from '@/store/useAuthStore'
 
 export default function ChatPage() {
+  const router = useRouter()
+  const { user, loading, checkUser } = useAuthStore()
+
+  useEffect(() => {
+    checkUser()
+  }, [checkUser])
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login')
+    }
+  }, [user, loading, router])
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
+        <div className="animate-pulse flex flex-col items-center">
+          <div className="h-12 w-12 bg-blue-500 rounded-full mb-4"></div>
+          <div className="text-gray-500">Loading...</div>
+        </div>
+      </div>
+    )
+  }
+
+  if (!user) {
+    return null
+  }
+
   return (
     <div className="h-full w-full">
         {/* Mobile: Show sidebar (list) as the main view */}
@@ -25,6 +56,7 @@ export default function ChatPage() {
     </div>
   )
 }
+
 
 
 
