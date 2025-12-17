@@ -139,12 +139,31 @@ export default function LoginPage() {
 
           // Check if email confirmation is required
           if (signUpData.user && !signUpData.session) {
-            // Email confirmation required - show OTP modal
+            // Email confirmation required - show OTP modal and send OTP
             setPendingEmail(email)
             setIsOtpSignUp(true)
             setShowOtpModal(true)
             setCountdown(60)
             setIsLoading(false)
+            
+            // Automatically send OTP code
+            try {
+              const { error: otpError } = await supabase.auth.signInWithOtp({
+                email: email,
+                options: {
+                  shouldCreateUser: false, // User already created
+                }
+              })
+              
+              if (otpError) {
+                console.error('Error sending OTP:', otpError)
+                setOtpError('Ошибка отправки кода. Попробуйте отправить повторно.')
+              }
+            } catch (err: any) {
+              console.error('Error sending OTP:', err)
+              setOtpError('Ошибка отправки кода. Попробуйте отправить повторно.')
+            }
+            
             setTimeout(() => {
               otpInputRefs.current[0]?.focus()
             }, 100)
