@@ -1292,8 +1292,8 @@ export function Sidebar() {
                                                 </button>
                                             </div>
                                         </div>
-            </div>
-        )}
+                                    </div>
+                                )}
 
       {/* Bottom Footer - Settings and Logout */}
       <div className="mt-auto p-4 border-t border-gray-800 dark:border-gray-800 bg-[#17212B] dark:bg-[#17212B] shrink-0">
