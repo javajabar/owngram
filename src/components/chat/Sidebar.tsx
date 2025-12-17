@@ -39,10 +39,12 @@ export function Sidebar() {
     setContextMenu({ x: e.clientX, y: e.clientY, chatId })
   }
 
-  const fetchChats = async () => {
+  const fetchChats = async (showLoading = false) => {
     if (!user) return
     
-    setIsLoadingChats(true)
+    if (showLoading) {
+      setIsLoadingChats(true)
+    }
     try {
         // Fetch my profile (cache to avoid repeated calls)
         if (!myProfile) {
@@ -329,14 +331,14 @@ export function Sidebar() {
     if (!user) return
     
     let lastUpdate = 0
-    const MIN_UPDATE_INTERVAL = 10000 // 10 seconds minimum between updates (быстрее обновление)
+    const MIN_UPDATE_INTERVAL = 20000 // 20 seconds minimum between updates
     let statusUpdateEnabled = true
     
     const updateMyStatus = async (force = false) => {
       if (!statusUpdateEnabled) return
       
       const now = Date.now()
-      // Only update if at least 10 seconds have passed (or forced)
+      // Only update if at least 20 seconds have passed (or forced)
       if (!force && now - lastUpdate < MIN_UPDATE_INTERVAL) {
         return
       }
@@ -366,8 +368,8 @@ export function Sidebar() {
     // Update immediately
     updateMyStatus(true)
     
-    // Update every 10 seconds (быстрее для более точного статуса)
-    const interval = setInterval(() => updateMyStatus(false), 10000)
+    // Update every 20 seconds
+    const interval = setInterval(() => updateMyStatus(false), 20000)
     
     // Update on activity (debounced)
     let activityTimeout: NodeJS.Timeout | null = null
@@ -427,10 +429,10 @@ export function Sidebar() {
     if (!savedMessagesChecked) {
       ensureSavedMessagesChat().then(() => {
         setSavedMessagesChecked(true)
-        fetchChats()
+        fetchChats(true) // Show loading only on initial load
       })
     } else {
-      fetchChats()
+      fetchChats(false) // Don't show loading on subsequent loads
     }
 
     let currentChatId: string | null = null
@@ -444,16 +446,17 @@ export function Sidebar() {
       // Listen for chat read and chat left events
       const handleChatRead = (event: CustomEvent) => {
         if (event.detail?.chatId) {
-          // Refresh chats when a chat is marked as read
-          fetchChats()
+          // Update unread count locally without full refresh
+          setChats(prev => prev.map(chat => 
+            chat.id === event.detail.chatId 
+              ? { ...chat, unreadCount: 0 }
+              : chat
+          ))
         }
       }
       
       const handleChatLeft = (event: CustomEvent) => {
-        if (event.detail?.chatId) {
-          // Refresh chats when leaving a chat to update unread counts
-          fetchChats()
-        }
+        // No need to refresh - real-time updates will handle it
       }
       
       window.addEventListener('chatRead', handleChatRead as EventListener)
@@ -483,7 +486,7 @@ export function Sidebar() {
     
     const channel = supabase.channel('sidebar_chats')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_members', filter: `user_id=eq.${user.id}` }, () => {
-            fetchChats()
+            fetchChats(false) // Don't show loading
         })
         .on('postgres_changes', { 
             event: 'INSERT', 
@@ -525,8 +528,8 @@ export function Sidebar() {
                 .single()
             
             if (!fullMessage) {
-                // If we can't fetch full message, do a full refresh
-                fetchChats()
+                // If we can't fetch full message, do a full refresh (silent)
+                fetchChats(false)
                 return
             }
             
@@ -555,8 +558,8 @@ export function Sidebar() {
             setChats(prevChats => {
                 const chatIndex = prevChats.findIndex(c => c.id === fullMessage.chat_id)
                 if (chatIndex === -1) {
-                    // New chat - do full refresh
-                    fetchChats()
+                    // New chat - do full refresh (silent)
+                    fetchChats(false)
                     return prevChats
                 }
                 
@@ -616,9 +619,9 @@ export function Sidebar() {
                     chat.lastMessage = { ...chat.lastMessage, ...updatedMessage }
                 }
                 
-                // If message was deleted, refresh
+                // If message was deleted, refresh (silent)
                 if (updatedMessage.deleted_at && updatedMessage.deleted_for_all) {
-                    fetchChats()
+                    fetchChats(false)
                     return prevChats
                 }
                 
@@ -631,7 +634,7 @@ export function Sidebar() {
                 clearTimeout(fetchTimeoutRef.current)
             }
             fetchTimeoutRef.current = setTimeout(() => {
-                fetchChats()
+                fetchChats(false) // Silent refresh
             }, 500)
         })
         .subscribe()
@@ -796,8 +799,8 @@ export function Sidebar() {
         setShowNewChat(false)
         setSearchQuery('')
         
-        // Refresh list
-        fetchChats()
+        // Refresh list (silent)
+        fetchChats(false)
       } catch (e) {
           console.error('Error creating chat:', e)
           alert('Ошибка при создании чата')
@@ -836,8 +839,8 @@ export function Sidebar() {
               if (error) throw error
           }
           
-          // Refresh chat list
-          fetchChats()
+          // Refresh chat list (silent)
+          fetchChats(false)
           
           // If we're currently in this chat, redirect to chat list
           if (window.location.pathname.includes(chatId)) {
