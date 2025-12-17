@@ -4,7 +4,7 @@ import { Message } from '@/types'
 import { useAuthStore } from '@/store/useAuthStore'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
-import { Play, Pause, Check, CheckCheck, MoreVertical, Edit, Trash2, Reply, X } from 'lucide-react'
+import { Play, Pause, Check, CheckCheck, MoreVertical, Edit, Trash2, Reply, X, Paperclip } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 
 interface MessageBubbleProps {
@@ -350,6 +350,66 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
                     {formatDuration(duration || 0)}
                 </div>
                 <audio ref={audioRef} src={voiceAttachment.url} className="hidden" preload="metadata" />
+            </div>
+        ) : message.attachments?.some((a: any) => a.type === 'image') ? (
+            <div className="space-y-2">
+                {message.attachments.filter((a: any) => a.type === 'image').map((attachment: any, idx: number) => (
+                    <a
+                        key={idx}
+                        href={attachment.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="block rounded-lg overflow-hidden max-w-sm"
+                    >
+                        <img 
+                            src={attachment.url} 
+                            alt={attachment.name || 'Image'} 
+                            className="w-full h-auto object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                        />
+                    </a>
+                ))}
+                {message.content && message.content !== '📷 Фото' && (
+                    <div className="text-sm break-words whitespace-pre-wrap font-object-sans">
+                        {message.content}
+                    </div>
+                )}
+            </div>
+        ) : message.attachments?.some((a: any) => a.type === 'file') ? (
+            <div className="space-y-2">
+                {message.attachments.filter((a: any) => a.type === 'file').map((attachment: any, idx: number) => (
+                    <a
+                        key={idx}
+                        href={attachment.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={cn(
+                            "flex items-center gap-3 p-3 rounded-lg border transition-colors",
+                            isMe 
+                                ? "bg-white/10 border-white/20 hover:bg-white/20 text-white" 
+                                : "bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
+                        )}
+                    >
+                        <div className={cn(
+                            "w-10 h-10 rounded-lg flex items-center justify-center shrink-0",
+                            isMe ? "bg-white/20" : "bg-blue-100 dark:bg-blue-900/30"
+                        )}>
+                            <Paperclip className={cn("w-5 h-5", isMe ? "text-white" : "text-blue-600 dark:text-blue-400")} />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <div className="font-medium truncate">{attachment.name || 'Файл'}</div>
+                            {attachment.size && (
+                                <div className="text-xs opacity-70">
+                                    {(attachment.size / 1024).toFixed(1)} KB
+                                </div>
+                            )}
+                        </div>
+                    </a>
+                ))}
+                {message.content && message.content !== `📎 ${message.attachments[0]?.name}` && (
+                    <div className="text-sm break-words whitespace-pre-wrap font-object-sans">
+                        {message.content}
+                    </div>
+                )}
             </div>
         ) : (
             <div className="text-sm break-words whitespace-pre-wrap font-object-sans">

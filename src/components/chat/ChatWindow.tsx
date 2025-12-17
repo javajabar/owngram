@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Message, Profile, Chat } from '@/types'
 import { useAuthStore } from '@/store/useAuthStore'
-import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X } from 'lucide-react'
+import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X, Search } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { MessageBubble } from './MessageBubble'
 
@@ -46,6 +46,11 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [showProfile, setShowProfile] = useState(false)
   const [isOnline, setIsOnline] = useState(false)
   const [lastSeen, setLastSeen] = useState<string | null>(null)
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<Message[]>([])
+  const [isSearching, setIsSearching] = useState(false)
+  const [showSearch, setShowSearch] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { user } = useAuthStore()
@@ -447,6 +452,79 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       }
   }
 
+  const handleFileUpload = async (files: FileList) => {
+    if (!user || !chatId) return
+    
+    setIsUploading(true)
+    
+    try {
+      for (const file of Array.from(files)) {
+        const isImage = file.type.startsWith('image/')
+        const fileType = isImage ? 'image' : 'file'
+        const fileName = `${Date.now()}-${file.name}`
+        const filePath = `${chatId}/${fileName}`
+        
+        // Upload file
+        const { error: uploadError } = await supabase.storage
+          .from('chat-attachments')
+          .upload(filePath, file, { contentType: file.type })
+        
+        if (uploadError) throw uploadError
+        
+        // Get public URL
+        const { data: { publicUrl } } = supabase.storage
+          .from('chat-attachments')
+          .getPublicUrl(filePath)
+        
+        // Create message with attachment
+        await supabase.from('messages').insert({
+          chat_id: chatId,
+          sender_id: user.id,
+          content: isImage ? '📷 Фото' : `📎 ${file.name}`,
+          attachments: [{ 
+            type: fileType, 
+            url: publicUrl,
+            name: file.name,
+            size: file.size,
+            mimeType: file.type
+          }],
+          delivered_at: new Date().toISOString()
+        })
+      }
+    } catch (error) {
+      console.error('Error uploading file:', error)
+      alert('Ошибка при загрузке файла')
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
+  const searchMessages = async (query: string) => {
+    if (!query.trim() || !chatId) {
+      setSearchResults([])
+      return
+    }
+    
+    setIsSearching(true)
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*, sender:profiles(*)')
+        .eq('chat_id', chatId)
+        .ilike('content', `%${query}%`)
+        .order('created_at', { ascending: false })
+        .limit(50)
+      
+      if (error) throw error
+      setSearchResults(data || [])
+    } catch (error) {
+      console.error('Error searching messages:', error)
+      setSearchResults([])
+    } finally {
+      setIsSearching(false)
+    }
+  }
+
   const sendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault()
     if (!newMessage.trim() || !user) return
@@ -554,6 +632,19 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             <button onClick={(e) => { e.stopPropagation(); router.push('/chat') }} className="md:hidden p-2 -ml-2 text-gray-600 dark:text-gray-300 shrink-0 hover:bg-gray-200 dark:hover:bg-gray-700 rounded-full">
                 <ArrowLeft className="w-6 h-6" />
             </button>
+            <button
+                onClick={(e) => {
+                    e.stopPropagation()
+                    setShowSearch(!showSearch)
+                    if (!showSearch) {
+                        setSearchQuery('')
+                        setSearchResults([])
+                    }
+                }}
+                className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors"
+            >
+                <Search className="w-5 h-5" />
+            </button>
             {/* Avatar */}
             <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gradient-to-tr from-blue-400 to-purple-500">
                 {otherUser?.avatar_url ? (
@@ -610,10 +701,13 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-3 py-2">
         <div className="flex flex-col justify-end min-h-full">
-            {messages.length === 0 && (
+            {!showSearch && messages.length === 0 && (
                 <div className="text-center text-gray-400 py-10">No messages yet. Say hi!</div>
             )}
-            {messages.map((msg, index) => {
+            {showSearch && searchResults.length === 0 && searchQuery && !isSearching && (
+                <div className="text-center text-gray-400 py-10">Сообщения не найдены</div>
+            )}
+            {(showSearch && searchResults.length > 0 ? searchResults : messages).map((msg, index) => {
                 // Determine if this message should show avatar (first in series)
                 const prevMessage = index > 0 ? messages[index - 1] : null
                 const isFirstInSeries = !prevMessage || 
@@ -718,8 +812,30 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       {/* Input */}
       <div className="p-3 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 shrink-0">
         <form onSubmit={sendMessage} className="flex items-center gap-2 max-w-4xl mx-auto">
-            <button type="button" className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
-                <Paperclip className="w-5 h-5" />
+            <input
+                type="file"
+                ref={fileInputRef}
+                onChange={(e) => {
+                    if (e.target.files) {
+                        handleFileUpload(e.target.files)
+                        e.target.value = '' // Reset input
+                    }
+                }}
+                multiple
+                accept="image/*,.pdf,.doc,.docx,.txt"
+                className="hidden"
+            />
+            <button 
+                type="button" 
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors disabled:opacity-50"
+            >
+                {isUploading ? (
+                    <div className="w-5 h-5 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />
+                ) : (
+                    <Paperclip className="w-5 h-5" />
+                )}
             </button>
             <input
                 type="text"

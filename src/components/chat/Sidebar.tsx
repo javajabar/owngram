@@ -14,6 +14,10 @@ export function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [showNewChat, setShowNewChat] = useState(false)
   const [isSearching, setIsSearching] = useState(false)
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('')
+  const [globalSearchResults, setGlobalSearchResults] = useState<any[]>([])
+  const [isGlobalSearching, setIsGlobalSearching] = useState(false)
+  const [showGlobalSearch, setShowGlobalSearch] = useState(false)
     const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chatId: string } | null>(null)
     const [savedMessagesChecked, setSavedMessagesChecked] = useState(false)
@@ -913,6 +917,17 @@ export function Sidebar() {
                             autoFocus
                         />
                     </div>
+                    <div className="px-2 mt-2">
+                        <button
+                            onClick={() => {
+                                setShowGlobalSearch(true)
+                                setShowNewChat(false)
+                            }}
+                            className="w-full px-3 py-2 text-left text-sm text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
+                        >
+                            🔍 Поиск по всем чатам
+                        </button>
+                    </div>
                 </div>
 
                 {isSearching ? (
@@ -947,6 +962,83 @@ export function Sidebar() {
                         </div>
                         </div>
                     )}))}
+            </div>
+         ) : showGlobalSearch ? (
+            <div className="p-2">
+                <div className="px-2 mb-4">
+                    <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Поиск по всем чатам</h3>
+                        <button
+                            onClick={() => {
+                                setShowGlobalSearch(false)
+                                setGlobalSearchQuery('')
+                                setGlobalSearchResults([])
+                            }}
+                            className="p-1 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                        >
+                            <X className="w-4 h-4" />
+                        </button>
+                    </div>
+                    <div className="relative">
+                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                        <input 
+                            type="text" 
+                            placeholder="Поиск сообщений..." 
+                            value={globalSearchQuery}
+                            onChange={(e) => {
+                                setGlobalSearchQuery(e.target.value)
+                                searchAllMessages(e.target.value)
+                            }}
+                            className="w-full pl-9 pr-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                            autoFocus
+                        />
+                    </div>
+                </div>
+                
+                {isGlobalSearching ? (
+                    <div className="text-center py-4 text-gray-400 text-sm">Поиск...</div>
+                ) : globalSearchResults.length > 0 ? (
+                    <div className="space-y-2">
+                        {globalSearchResults.map((result, idx) => (
+                            <div
+                                key={idx}
+                                onClick={() => {
+                                    router.push(`/chat/${result.chat.id}`)
+                                    setShowGlobalSearch(false)
+                                }}
+                                className="p-3 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors"
+                            >
+                                <div className="flex items-center gap-2 mb-1">
+                                    <div className="text-xs font-semibold text-gray-900 dark:text-white">
+                                        {result.chat.type === 'dm' 
+                                            ? (result.sender?.full_name || result.sender?.username?.replace(/^@+/, '') || 'User')
+                                            : (result.chat.name || 'Chat')
+                                        }
+                                    </div>
+                                    <div className="text-xs text-gray-500">
+                                        {new Date(result.message.created_at).toLocaleDateString('ru-RU', { 
+                                            day: 'numeric', 
+                                            month: 'short',
+                                            hour: '2-digit',
+                                            minute: '2-digit'
+                                        })}
+                                    </div>
+                                </div>
+                                <div className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
+                                    {result.message.content}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ) : globalSearchQuery ? (
+                    <div className="text-center p-4 text-gray-400 text-sm">
+                        Ничего не найдено
+                    </div>
+                ) : (
+                    <div className="text-center p-4 text-gray-400 text-sm">
+                        Введите запрос для поиска
+                    </div>
+                )}
             </div>
          ) : isLoadingChats ? (
                 <div className="p-8 text-center text-gray-500">
