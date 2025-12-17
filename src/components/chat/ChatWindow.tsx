@@ -66,14 +66,15 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       return
     }
     
-    const checkOnlineStatus = () => {
-      if (otherUser.last_seen_at) {
-        const lastSeenDate = new Date(otherUser.last_seen_at)
+    const checkOnlineStatus = (lastSeenValue?: string) => {
+      const lastSeenAt = lastSeenValue || otherUser.last_seen_at
+      if (lastSeenAt) {
+        const lastSeenDate = new Date(lastSeenAt)
         const now = new Date()
         const diffMinutes = (now.getTime() - lastSeenDate.getTime()) / 60000
         
         setIsOnline(diffMinutes < 2) // Online if active in last 2 minutes
-        setLastSeen(otherUser.last_seen_at)
+        setLastSeen(lastSeenAt)
       } else {
         setIsOnline(false)
         setLastSeen(null)
@@ -82,7 +83,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     
     checkOnlineStatus()
     
-    // Subscribe to profile changes (only if column exists)
+    // Subscribe to profile changes (only if column exists) - real-time updates
     const channel = supabase.channel(`profile:${otherUser.id}`)
       .on('postgres_changes', {
         event: 'UPDATE',
@@ -92,19 +93,18 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       }, (payload) => {
         const updated = payload.new as Profile
         setOtherUser(prev => prev ? { ...prev, ...updated } : null)
-        // Only process if last_seen_at exists
+        // Immediately update status when we get real-time update
         if ('last_seen_at' in updated && updated.last_seen_at) {
-          const lastSeenDate = new Date(updated.last_seen_at)
-          const now = new Date()
-          const diffMinutes = (now.getTime() - lastSeenDate.getTime()) / 60000
-          setIsOnline(diffMinutes < 2)
-          setLastSeen(updated.last_seen_at)
+          checkOnlineStatus(updated.last_seen_at)
+        } else {
+          setIsOnline(false)
+          setLastSeen(null)
         }
       })
       .subscribe()
     
-    // Check status every 10 seconds (быстрее обновление)
-    const interval = setInterval(checkOnlineStatus, 10000)
+    // Check status every 10 seconds (fallback if real-time fails)
+    const interval = setInterval(() => checkOnlineStatus(), 10000)
     
     return () => {
       supabase.removeChannel(channel)
