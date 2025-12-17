@@ -19,6 +19,7 @@ export function Sidebar() {
     const [savedMessagesChecked, setSavedMessagesChecked] = useState(false)
     const [userChatIds, setUserChatIds] = useState<string[]>([])
     const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set())
+    const [isLoadingChats, setIsLoadingChats] = useState(false)
     const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const chatsRef = useRef<Chat[]>([])
     const router = useRouter()
