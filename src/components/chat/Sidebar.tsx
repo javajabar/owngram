@@ -1067,7 +1067,10 @@ export function Sidebar() {
                            )}
                         </div>
                         </div>
-                    )}))}
+                        )
+                        })}
+                    </div>
+                )}
             </div>
          ) : showGlobalSearch ? (
             <div className="p-2">
