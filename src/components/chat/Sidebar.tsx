@@ -945,13 +945,6 @@ export function Sidebar() {
                         <p>Загрузка чатов...</p>
                     </div>
                 </div>
-            ) : isLoadingChats ? (
-                <div className="p-8 text-center text-gray-500">
-                    <div className="animate-pulse flex flex-col items-center">
-                        <div className="h-12 w-12 bg-gray-200 dark:bg-gray-700 rounded-full mb-4"></div>
-                        <p>Загрузка чатов...</p>
-                    </div>
-                </div>
             ) : chats.length === 0 ? (
                 <div className="p-8 text-center text-gray-500">
                     <p className="mb-2">No chats yet.</p>
