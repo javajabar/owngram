@@ -626,8 +626,24 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           })
           
           // Check if this signal is for current user
-          if (signal.to_user_id === user.id) {
-            console.log('✅ Signal is for me! Processing...')
+          // For call-request: to_user_id should be current user
+          // For call-accept: from_user_id should be otherUser (they accepted our call) OR we need to check if we're calling
+          // For call-reject/call-end: either direction
+          const isCallRequestForMe = signal.signal_type === 'call-request' && signal.to_user_id === user.id
+          const isCallAcceptForMe = signal.signal_type === 'call-accept' && 
+            ((signal.from_user_id === otherUser?.id && signal.to_user_id === user.id) || isCalling)
+          const isCallRejectForMe = (signal.signal_type === 'call-reject' || signal.signal_type === 'call-end') && 
+            (signal.to_user_id === user.id || signal.from_user_id === otherUser?.id || isCalling || incomingCall)
+          
+          if (isCallRequestForMe || isCallAcceptForMe || isCallRejectForMe) {
+            console.log('✅ Signal is for me! Processing...', { 
+              type: signal.signal_type,
+              isCallRequestForMe,
+              isCallAcceptForMe,
+              isCallRejectForMe,
+              isCalling,
+              incomingCall
+            })
             if (signal.signal_type === 'call-request') {
               console.log('📞 Incoming call request from:', signal.from_user_id)
               // Fetch other user info if not available
@@ -655,27 +671,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               // Stop ringing sound
               soundManager.stopCallRinging()
               
-              if (isCalling) {
+              // If we initiated the call, handle acceptance
+              if (isCalling && webrtcHandlerRef.current) {
+                console.log('✅ Call accepted, establishing connection...')
                 setIsInCall(true)
                 setIsCalling(false)
                 // Play call answered sound
                 soundManager.playCallAnswered()
-                // Initialize WebRTC as answerer (we initiated, they accepted)
-                try {
-                  const handler = new WebRTCHandler(
-                    user.id,
-                    signal.from_user_id,
-                    chatId,
-                    (stream) => setRemoteStream(stream),
-                    handleEndCall
-                  )
-                  webrtcHandlerRef.current = handler
-                  const stream = await handler.initialize(false)
-                  setLocalStream(stream)
-                } catch (error) {
-                  console.error('Error accepting call:', error)
-                  handleEndCall()
-                }
+                // Handler already exists from handleStartCall, WebRTC should already be initialized
+                // The remote stream will come through the ontrack event
+                console.log('✅ WebRTC handler already initialized, waiting for remote stream...')
               }
             } else if (signal.signal_type === 'call-reject' || signal.signal_type === 'call-end') {
               console.log('❌ Call rejected/ended')
@@ -684,7 +689,15 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               handleEndCall()
             }
           } else {
-            console.log('⏭️ Signal is not for me, ignoring')
+            console.log('⏭️ Signal is not for me, ignoring', {
+              type: signal.signal_type,
+              from: signal.from_user_id,
+              to: signal.to_user_id,
+              currentUser: user.id,
+              otherUser: otherUser?.id,
+              isCalling,
+              incomingCall
+            })
           }
         }
       )
