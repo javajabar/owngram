@@ -297,53 +297,22 @@ export default function ProfilePage() {
                             // Format with dots as user types
                             if (raw.length === 0) {
                                 setBirthDate('')
-                            } else if (raw.length === 1) {
-                                // Single digit: 4 -> 4
+                            } else if (raw.length <= 2) {
+                                // 1-2 digits: just show as is
                                 setBirthDate(raw)
-                            } else if (raw.length === 2) {
-                                // Two digits: 44 -> 04.04 (if > 31, treat as D.M format)
-                                const firstTwo = parseInt(raw)
-                                if (firstTwo > 31) {
-                                    // 44 -> 04.04
-                                    const day = raw[0].padStart(2, '0')
-                                    const month = raw[1].padStart(2, '0')
-                                    setBirthDate(`${day}.${month}`)
-                                } else {
-                                    // 26 -> 26
-                                    setBirthDate(raw)
-                                }
-                            } else if (raw.length === 3) {
-                                // Three digits: 442 -> 04.04.2
-                                const day = raw[0].padStart(2, '0')
-                                const month = raw[1].padStart(2, '0')
-                                const year = raw[2]
-                                setBirthDate(`${day}.${month}.${year}`)
-                            } else if (raw.length === 4) {
-                                // Four digits: 4420 -> 04.04.20
-                                const day = raw[0].padStart(2, '0')
-                                const month = raw[1].padStart(2, '0')
-                                const year = raw.slice(2, 4)
-                                setBirthDate(`${day}.${month}.${year}`)
-                            } else if (raw.length === 5) {
-                                // Five digits: 44200 -> 04.04.200
-                                const day = raw[0].padStart(2, '0')
-                                const month = raw[1].padStart(2, '0')
-                                const year = raw.slice(2, 5)
-                                setBirthDate(`${day}.${month}.${year}`)
+                            } else if (raw.length <= 4) {
+                                // 3-4 digits: ДД.ММ
+                                const day = raw.slice(0, 2).padStart(2, '0')
+                                const month = raw.slice(2, 4) || ''
+                                setBirthDate(month ? `${day}.${month}` : day)
                             } else if (raw.length === 6) {
-                                // Six digits: 442005 -> 04.04.2005
+                                // 6 digits: ДМГГГГ -> 0Д.0М.ГГГГ (например: 442005 -> 04.04.2005)
                                 const day = raw[0].padStart(2, '0')
                                 const month = raw[1].padStart(2, '0')
                                 const year = raw.slice(2, 6)
                                 setBirthDate(`${day}.${month}.${year}`)
-                            } else if (raw.length === 7) {
-                                // Seven digits: 2610200 -> 26.10.200
-                                const day = raw.slice(0, 2).padStart(2, '0')
-                                const month = raw.slice(2, 4).padStart(2, '0')
-                                const year = raw.slice(4, 7)
-                                setBirthDate(`${day}.${month}.${year}`)
-                            } else if (raw.length === 8) {
-                                // Full date: 26102005 -> 26.10.2005
+                            } else if (raw.length <= 8) {
+                                // 7-8 digits: ДДММГГГГ -> ДД.ММ.ГГГГ (например: 26102005 -> 26.10.2005)
                                 const day = raw.slice(0, 2).padStart(2, '0')
                                 const month = raw.slice(2, 4).padStart(2, '0')
                                 const year = raw.slice(4, 8)
@@ -351,34 +320,24 @@ export default function ProfilePage() {
                             }
                         }}
                         onBlur={(e) => {
-                            // On blur, ensure proper format with leading zeros
+                            // On blur, ensure proper format
                             const raw = birthDateInput.replace(/\D/g, '')
                             if (raw.length === 6) {
-                                // 442005 -> 04.04.2005
+                                // 6 digits: ДМГГГГ -> 0Д.0М.ГГГГ
                                 const day = raw[0].padStart(2, '0')
                                 const month = raw[1].padStart(2, '0')
                                 const year = raw.slice(2, 6)
                                 setBirthDate(`${day}.${month}.${year}`)
                             } else if (raw.length === 8) {
-                                // 26102005 -> 26.10.2005
+                                // 8 digits: ДДММГГГГ -> ДД.ММ.ГГГГ
                                 const day = raw.slice(0, 2).padStart(2, '0')
                                 const month = raw.slice(2, 4).padStart(2, '0')
                                 const year = raw.slice(4, 8)
                                 setBirthDate(`${day}.${month}.${year}`)
                             } else if (raw.length > 0 && raw.length < 6) {
-                                // If incomplete, try to format what we have
-                                if (raw.length === 2 && parseInt(raw) > 31) {
-                                    // 44 -> 04.04
-                                    const day = raw[0].padStart(2, '0')
-                                    const month = raw[1].padStart(2, '0')
-                                    setBirthDate(`${day}.${month}`)
-                                } else if (raw.length >= 3) {
-                                    // Try to format with single digit day/month
-                                    const day = raw[0].padStart(2, '0')
-                                    const month = raw[1].padStart(2, '0')
-                                    const year = raw.slice(2)
-                                    setBirthDate(`${day}.${month}.${year}`)
-                                }
+                                // If incomplete, clear it
+                                setBirthDate('')
+                                setBirthDateInput('')
                             }
                         }}
                         placeholder="26102005"
