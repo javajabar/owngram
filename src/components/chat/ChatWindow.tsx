@@ -681,8 +681,18 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 </div>
             </div>
         </div>
-        <button className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full shrink-0">
-            <MoreVertical className="w-5 h-5" />
+        <button 
+            onClick={(e) => {
+                e.stopPropagation()
+                setShowSearch(!showSearch)
+                if (!showSearch) {
+                    setSearchQuery('')
+                    setSearchResults([])
+                }
+            }}
+            className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full shrink-0"
+        >
+            <Search className="w-5 h-5" />
         </button>
       </div>
 

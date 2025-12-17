@@ -1003,26 +1003,42 @@ export function Sidebar() {
                                     setShowGlobalSearch(false)
                                     setSearchQuery('')
                                 }}
-                                className="p-3 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors"
+                                className="p-3 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer transition-colors flex items-start gap-3"
                             >
-                                <div className="flex items-center gap-2 mb-1">
-                                    <div className="text-xs font-semibold text-gray-900 dark:text-white">
-                                        {result.chat.type === 'dm' 
-                                            ? (result.sender?.full_name || result.sender?.username?.replace(/^@+/, '') || 'User')
-                                            : (result.chat.name || 'Chat')
-                                        }
-                                    </div>
-                                    <div className="text-xs text-gray-500">
-                                        {new Date(result.message.created_at).toLocaleDateString('ru-RU', { 
-                                            day: 'numeric', 
-                                            month: 'short',
-                                            hour: '2-digit',
-                                            minute: '2-digit'
-                                        })}
-                                    </div>
+                                {/* Avatar */}
+                                <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700">
+                                    {result.sender?.avatar_url ? (
+                                        <img 
+                                            src={result.sender.avatar_url} 
+                                            className="w-full h-full object-cover" 
+                                            alt={result.sender.username || 'User'} 
+                                        />
+                                    ) : (
+                                        <span className="text-gray-600 dark:text-gray-300 font-semibold text-sm">
+                                            {(result.sender?.username?.[0] || result.sender?.full_name?.[0] || 'U').toUpperCase()}
+                                        </span>
+                                    )}
                                 </div>
-                                <div className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
-                                    {result.message.content}
+                                <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2 mb-1">
+                                        <div className="text-xs font-semibold text-gray-900 dark:text-white">
+                                            {result.chat.type === 'dm' 
+                                                ? (result.sender?.full_name || result.sender?.username?.replace(/^@+/, '') || 'User')
+                                                : (result.chat.name || 'Chat')
+                                            }
+                                        </div>
+                                        <div className="text-xs text-gray-500">
+                                            {new Date(result.message.created_at).toLocaleDateString('ru-RU', { 
+                                                day: 'numeric', 
+                                                month: 'short',
+                                                hour: '2-digit',
+                                                minute: '2-digit'
+                                            })}
+                                        </div>
+                                    </div>
+                                    <div className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
+                                        {result.message.content}
+                                    </div>
                                 </div>
                             </div>
                         ))}
