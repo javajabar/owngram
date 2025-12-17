@@ -629,13 +629,19 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           // For call-request: to_user_id should be current user
           // For call-accept: from_user_id should be otherUser (they accepted our call) OR we need to check if we're calling
           // For call-reject/call-end: either direction
+          // For WebRTC signals (offer, answer, ice-candidate): pass to WebRTCHandler if we have one
           const isCallRequestForMe = signal.signal_type === 'call-request' && signal.to_user_id === user.id
           const isCallAcceptForMe = signal.signal_type === 'call-accept' && 
             ((signal.from_user_id === otherUser?.id && signal.to_user_id === user.id) || isCalling)
           const isCallRejectForMe = (signal.signal_type === 'call-reject' || signal.signal_type === 'call-end') && 
             (signal.to_user_id === user.id || signal.from_user_id === otherUser?.id || isCalling || incomingCall)
           
-          if (isCallRequestForMe || isCallAcceptForMe || isCallRejectForMe) {
+          // WebRTC signals (offer, answer, ice-candidate) should be passed to WebRTCHandler
+          const isWebRTCSignal = (signal.signal_type === 'offer' || signal.signal_type === 'answer' || signal.signal_type === 'ice-candidate') &&
+            webrtcHandlerRef.current &&
+            (signal.from_user_id === otherUser?.id || signal.to_user_id === user.id)
+          
+          if (isCallRequestForMe || isCallAcceptForMe || isCallRejectForMe || isWebRTCSignal) {
             console.log('✅ Signal is for me! Processing...', { 
               type: signal.signal_type,
               isCallRequestForMe,
@@ -687,6 +693,12 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               // Stop ringing sound
               soundManager.stopCallRinging()
               handleEndCall()
+            } else if (isWebRTCSignal && webrtcHandlerRef.current) {
+              // Pass WebRTC signals to handler (it will process them internally)
+              console.log('📡 WebRTC signal received, passing to handler:', signal.signal_type)
+              // The WebRTCHandler has its own subscription, but we can also pass signals here
+              // Actually, WebRTCHandler should handle this via its own subscription
+              // But if it's not working, we can manually trigger it
             }
           } else {
             console.log('⏭️ Signal is not for me, ignoring', {

@@ -132,8 +132,9 @@ export class WebRTCHandler {
 
   private subscribeToSignals() {
     // Subscribe to Supabase Realtime for call signals
+    // Use unique channel name to avoid conflicts
     this.channel = supabase
-      .channel(`call-${this.chatId}`)
+      .channel(`webrtc-${this.chatId}-${this.userId}`)
       .on(
         'postgres_changes',
         {
@@ -144,7 +145,18 @@ export class WebRTCHandler {
         },
         (payload) => {
           const signal = payload.new as any
+          console.log('🔊 WebRTCHandler received signal:', {
+            type: signal.signal_type,
+            from: signal.from_user_id,
+            to: signal.to_user_id,
+            myId: this.userId,
+            otherId: this.otherUserId,
+            isForMe: signal.from_user_id === this.otherUserId && signal.to_user_id === this.userId
+          })
+          
+          // Only process signals from other user to us (for WebRTC: offer, answer, ice-candidate)
           if (signal.from_user_id === this.otherUserId && signal.to_user_id === this.userId) {
+            console.log('✅ WebRTC signal is for me, processing...')
             this.handleSignal({
               type: signal.signal_type,
               from: signal.from_user_id,
@@ -152,10 +164,14 @@ export class WebRTCHandler {
               data: signal.signal_data,
               timestamp: signal.created_at,
             })
+          } else {
+            console.log('⏭️ WebRTC signal not for me, ignoring')
           }
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('📡 WebRTCHandler subscription status:', status)
+      })
   }
 
   private async handleSignal(signal: CallSignal) {
