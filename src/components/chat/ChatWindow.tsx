@@ -621,38 +621,12 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         },
         async (payload) => {
           const signal = payload.new as any
-          
-          // Normalize IDs for comparison (trim, lowercase)
-          const normalizeId = (id: string | null | undefined): string => {
-            if (!id) return ''
-            return String(id).trim().toLowerCase()
-          }
-          
-          const signalTo = normalizeId(signal.to_user_id)
-          const signalFrom = normalizeId(signal.from_user_id)
-          const currentUserNormalized = normalizeId(currentUserId) // Use ID from closure, not from user object
-          const otherUserId = normalizeId(otherUser?.id)
-          
           console.log('📞 Call signal received:', {
             type: signal.signal_type,
-            from: signalFrom,
-            to: signalTo,
-            currentUser: currentUserNormalized,
-            otherUser: otherUserId,
-            rawFrom: signal.from_user_id,
-            rawTo: signal.to_user_id,
-            rawCurrentUser: currentUserId,
-            isForMe: signalTo === currentUserNormalized,
-            comparison: {
-              toEqualsCurrent: signalTo === currentUserNormalized,
-              fromEqualsOther: signalFrom === otherUserId,
-              currentUserExists: !!currentUserId,
-              signalToExists: !!signal.to_user_id,
-              exactMatch: signalTo === currentUserNormalized,
-              typeCheck: typeof signalTo === typeof currentUserNormalized,
-              signalToLength: signalTo.length,
-              currentUserLength: currentUserNormalized.length
-            }
+            from: signal.from_user_id,
+            to: signal.to_user_id,
+            currentUser: currentUserId,
+            isForMe: signal.to_user_id === currentUserId
           })
           
           // Check if this signal is for current user
@@ -660,16 +634,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           // For call-accept: from_user_id should be otherUser (they accepted our call) OR we need to check if we're calling
           // For call-reject/call-end: either direction
           // For WebRTC signals (offer, answer, ice-candidate): pass to WebRTCHandler if we have one
-          const isCallRequestForMe = signal.signal_type === 'call-request' && signalTo === currentUserNormalized
+          const isCallRequestForMe = signal.signal_type === 'call-request' && signal.to_user_id === currentUserId
           const isCallAcceptForMe = signal.signal_type === 'call-accept' && 
-            ((signalFrom === otherUserId && signalTo === currentUserNormalized) || isCalling)
+            ((signal.from_user_id === otherUser?.id && signal.to_user_id === currentUserId) || isCalling)
           const isCallRejectForMe = (signal.signal_type === 'call-reject' || signal.signal_type === 'call-end') && 
-            (signalTo === currentUserNormalized || signalFrom === otherUserId || isCalling || incomingCall)
+            (signal.to_user_id === currentUserId || signal.from_user_id === otherUser?.id || isCalling || incomingCall)
           
           // WebRTC signals (offer, answer, ice-candidate) should be passed to WebRTCHandler
           const isWebRTCSignal = (signal.signal_type === 'offer' || signal.signal_type === 'answer' || signal.signal_type === 'ice-candidate') &&
             webrtcHandlerRef.current &&
-            (signalFrom === otherUserId || signalTo === currentUserNormalized)
+            (signal.from_user_id === otherUser?.id || signal.to_user_id === currentUserId)
           
           if (isCallRequestForMe || isCallAcceptForMe || isCallRejectForMe || isWebRTCSignal) {
             console.log('✅ Signal is for me! Processing...', { 
