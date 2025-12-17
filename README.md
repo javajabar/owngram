@@ -12,7 +12,7 @@
 
 ### 2. Настройка переменных окружения
 
-Создайте файл `.env.local` в корне проекта:
+Создайте файл `.env.local` в корне проектаds:
 
 ```env
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-id.supabase.co
