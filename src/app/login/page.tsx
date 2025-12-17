@@ -89,8 +89,8 @@ export default function LoginPage() {
   }
 
   // Verify OTP code
-  const handleVerifyOtp = async () => {
-    const fullCode = otpCode.join('')
+  const handleVerifyOtp = async (codeOverride?: string) => {
+    const fullCode = codeOverride || otpCode.join('')
     if (fullCode.length !== 8) {
       setOtpError('Введите 8-значный код')
       return
@@ -153,7 +153,7 @@ export default function LoginPage() {
     if (value && index === 7) {
       const fullCode = newCode.join('')
       if (fullCode.length === 8) {
-        setTimeout(() => handleVerifyOtp(), 100)
+        setTimeout(() => handleVerifyOtp(fullCode), 100)
       }
     }
   }
@@ -181,7 +181,7 @@ export default function LoginPage() {
       otpInputRefs.current[focusIndex]?.focus()
 
       if (pastedData.length === 8) {
-        setTimeout(() => handleVerifyOtp(), 100)
+        setTimeout(() => handleVerifyOtp(pastedData), 100)
       }
     }
   }

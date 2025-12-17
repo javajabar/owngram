@@ -179,110 +179,66 @@ export function Sidebar() {
     if (!user) return
     
     try {
-      // First, check if there's already a chat with name "Избранное"
-      const { data: existingSavedChats } = await supabase
-        .from('chats')
-        .select('id, chat_members!inner(user_id)')
-        .eq('name', 'Избранное')
-        .eq('type', 'dm')
-      
-      if (existingSavedChats && existingSavedChats.length > 0) {
-        // Check if user is a member of any of these chats
-        for (const chat of existingSavedChats) {
-          const { data: members } = await supabase
-            .from('chat_members')
-            .select('user_id')
-            .eq('chat_id', chat.id)
-          
-          // If user is the only member, this is their saved messages chat
-          if (members && members.length === 1 && members[0].user_id === user.id) {
-            // Found existing saved messages chat
-            // If there are multiple, delete the extras (keep only the first one)
-            if (existingSavedChats.length > 1) {
-              const chatsToDelete = existingSavedChats.slice(1)
-              for (const chatToDelete of chatsToDelete) {
-                // Delete members first
-                await supabase
-                  .from('chat_members')
-                  .delete()
-                  .eq('chat_id', chatToDelete.id)
-                // Then delete chat
-                await supabase
-                  .from('chats')
-                  .delete()
-                  .eq('id', chatToDelete.id)
-              }
-            }
-            return // Already exists
-          }
-        }
-      }
-      
-      // Also check for self-chats without name (legacy check)
-      const { data: allMyChats } = await supabase
+      // Get ALL my DM chats
+      const { data: myChats } = await supabase
         .from('chat_members')
-        .select('chat_id, chats!inner(type)')
+        .select('chat_id')
         .eq('user_id', user.id)
-        .eq('chats.type', 'dm')
       
-      if (allMyChats) {
-        for (const member of allMyChats) {
-          const { data: members } = await supabase
-            .from('chat_members')
-            .select('user_id')
-            .eq('chat_id', member.chat_id)
-          
-          // If only one member (self), this might be a saved messages chat
-          if (members && members.length === 1 && members[0].user_id === user.id) {
-            // Update it to have name "Избранное" if it doesn't have one
-            const { data: chatData } = await supabase
-              .from('chats')
-              .select('name')
-              .eq('id', member.chat_id)
-              .single()
-            
-            if (chatData && !chatData.name) {
-              await supabase
-                .from('chats')
-                .update({ name: 'Избранное' })
-                .eq('id', member.chat_id)
-            }
-            return // Found existing self-chat
-          }
+      if (!myChats) return
+      
+      // Find all self-chats (chats where I'm the only member)
+      const selfChats: string[] = []
+      
+      for (const mc of myChats) {
+        const { data: members } = await supabase
+          .from('chat_members')
+          .select('user_id')
+          .eq('chat_id', mc.chat_id)
+        
+        // If I'm the only member, it's a self-chat
+        if (members && members.length === 1 && members[0].user_id === user.id) {
+          selfChats.push(mc.chat_id)
         }
       }
       
-      // Create "Избранное" chat only if none exists
+      if (selfChats.length > 0) {
+        // Keep only the first one, delete the rest
+        const [keepChatId, ...deleteChats] = selfChats
+        
+        // Update the first one to have name "Избранное"
+        await supabase
+          .from('chats')
+          .update({ name: 'Избранное', type: 'dm' })
+          .eq('id', keepChatId)
+        
+        // Delete duplicates
+        for (const chatId of deleteChats) {
+          await supabase.from('chat_members').delete().eq('chat_id', chatId)
+          await supabase.from('messages').delete().eq('chat_id', chatId)
+          await supabase.from('chats').delete().eq('id', chatId)
+        }
+        
+        return // We have a saved messages chat now
+      }
+      
+      // No self-chat exists, create one
       const { data: savedChat, error: chatError } = await supabase
         .from('chats')
         .insert({ type: 'dm', name: 'Избранное' })
         .select()
         .single()
       
-      if (chatError) {
-        // If error is about duplicate, that's okay - chat already exists
-        if (chatError.message.includes('duplicate') || chatError.message.includes('unique')) {
-          return
-        }
-        throw chatError
-      }
+      if (chatError) throw chatError
       if (!savedChat) return
       
-      // Add user as member (only member = self-chat)
-      const { error: memberError } = await supabase
+      // Add user as the only member
+      await supabase
         .from('chat_members')
         .insert({ chat_id: savedChat.id, user_id: user.id })
-      
-      if (memberError) {
-        // If member already exists, that's okay
-        if (memberError.message.includes('duplicate') || memberError.message.includes('unique')) {
-          return
-        }
-        throw memberError
-      }
+        
     } catch (e) {
       console.error('Error creating saved messages chat:', e)
-      // Don't show error to user, just log it
     }
   }
 
