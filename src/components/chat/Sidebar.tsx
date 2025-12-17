@@ -139,7 +139,20 @@ export function Sidebar() {
                 })
             )
             
-            const validChats = chatsWithDetails.filter(Boolean) as any[]
+            let validChats = chatsWithDetails.filter(Boolean) as any[]
+            
+            // Filter out duplicate "Избранное" chats - keep only the first one
+            let foundSavedMessages = false
+            validChats = validChats.filter((chat: any) => {
+                const isSavedMessages = chat.name === 'Избранное' || 
+                    (chat.type === 'dm' && chat.otherUser?.id === user.id)
+                if (isSavedMessages) {
+                    if (foundSavedMessages) return false // Skip duplicates
+                    foundSavedMessages = true
+                }
+                return true
+            })
+            
             // Sort by last message time
             validChats.sort((a, b) => {
                 const timeA = a.lastMessage?.created_at || a.created_at
