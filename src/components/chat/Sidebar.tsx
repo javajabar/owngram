@@ -744,6 +744,56 @@ export function Sidebar() {
       return () => clearTimeout(timer)
   }, [searchQuery, user])
 
+  // Global search in all chats
+  const searchAllMessages = async (query: string) => {
+    if (!query.trim() || !user) {
+      setGlobalSearchResults([])
+      return
+    }
+    
+    setIsGlobalSearching(true)
+    try {
+      // Get all user's chat IDs
+      const { data: memberData } = await supabase
+        .from('chat_members')
+        .select('chat_id')
+        .eq('user_id', user.id)
+      
+      if (!memberData || memberData.length === 0) {
+        setGlobalSearchResults([])
+        setIsGlobalSearching(false)
+        return
+      }
+      
+      const chatIds = memberData.map(m => m.chat_id)
+      
+      // Search messages in all chats
+      const { data: messages, error } = await supabase
+        .from('messages')
+        .select('*, sender:profiles(*), chats(id, name, type)')
+        .in('chat_id', chatIds)
+        .ilike('content', `%${query}%`)
+        .order('created_at', { ascending: false })
+        .limit(50)
+      
+      if (error) throw error
+      
+      // Group by chat and format results
+      const results = (messages || []).map((msg: any) => ({
+        message: msg,
+        chat: msg.chats,
+        sender: msg.sender
+      }))
+      
+      setGlobalSearchResults(results)
+    } catch (error) {
+      console.error('Error searching messages:', error)
+      setGlobalSearchResults([])
+    } finally {
+      setIsGlobalSearching(false)
+    }
+  }
+
   const createChat = async (otherUserId: string) => {
       if (!user) return
 
