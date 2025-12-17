@@ -57,9 +57,15 @@ export default function LoginPage() {
       return
     }
     
-    if (!isSignUp && (!password || !password.trim())) {
+    if (!password || !password.trim()) {
       console.error('Validation failed: No password')
       setError('Введите пароль')
+      return
+    }
+    
+    if (isSignUp && password.length < 6) {
+      console.error('Validation failed: Password too short')
+      setError('Пароль должен быть не менее 6 символов')
       return
     }
     
@@ -70,11 +76,19 @@ export default function LoginPage() {
     try {
       console.log('Starting auth process...')
       if (isSignUp) {
-        // Send OTP code for registration
-        const { error: otpError } = await supabase.auth.signInWithOtp({
+        // Validate password for signup
+        if (!password || password.length < 6) {
+          setError('Пароль должен быть не менее 6 символов')
+          setIsLoading(false)
+          return
+        }
+
+        // Sign up with email and password
+        console.log('📝 Attempting signup with password...')
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
           email,
+          password,
           options: {
-            shouldCreateUser: true,
             data: {
               username: username || email.split('@')[0],
               full_name: fullName || '',
@@ -82,20 +96,58 @@ export default function LoginPage() {
           }
         })
 
-        if (otpError) {
-          console.error('OTP Error:', otpError)
-          throw otpError
+        if (signUpError) {
+          console.error('Signup Error:', signUpError)
+          throw signUpError
         }
 
-        // Show OTP modal
-        setPendingEmail(email)
-        setIsOtpSignUp(true)
-        setShowOtpModal(true)
-        setCountdown(60)
-        setIsLoading(false) // Stop loading when OTP modal shows
-        setTimeout(() => {
-          otpInputRefs.current[0]?.focus()
-        }, 100)
+        if (signUpData.user) {
+          // Create profile
+          const { error: profileError } = await supabase
+            .from('profiles')
+            .upsert({
+              id: signUpData.user.id,
+              username: username || '@' + email.split('@')[0],
+              full_name: fullName || email.split('@')[0],
+              updated_at: new Date().toISOString()
+            }, {
+              onConflict: 'id'
+            })
+
+          if (profileError) {
+            console.error('Profile creation error:', profileError)
+          }
+
+          // Wait for session
+          console.log('⏳ Waiting for session after signup...')
+          await new Promise(resolve => setTimeout(resolve, 1000))
+          
+          await checkUser()
+          
+          // Check session multiple times
+          let sessionConfirmed = false
+          for (let i = 0; i < 3; i++) {
+            const { data: { session } } = await supabase.auth.getSession()
+            console.log(`Signup Session check ${i + 1}/3:`, { hasSession: !!session, hasUser: !!session?.user })
+            
+            if (session && session.user) {
+              sessionConfirmed = true
+              break
+            }
+            
+            if (i < 2) {
+              await new Promise(resolve => setTimeout(resolve, 500))
+            }
+          }
+          
+          if (sessionConfirmed) {
+            console.log('✅ Signup Session confirmed, redirecting to /chat')
+            window.location.href = '/chat'
+          } else {
+            console.error('❌ No session after signup')
+            setError('Регистрация прошла успешно, но не удалось войти. Попробуйте войти с вашими данными.')
+          }
+        }
       } else {
         // Try to sign in with password first
         console.log('🔐 Attempting password login...', { email: email.substring(0, 5) + '...' })
@@ -443,23 +495,26 @@ export default function LoginPage() {
               />
             </div>
 
-            {!isSignUp && (
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                  Пароль
-                </label>
-                <input
-                  id="password"
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-                  placeholder="••••••••"
-                  minLength={6}
-                />
-              </div>
-            )}
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                Пароль
+              </label>
+              <input
+                id="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                placeholder="••••••••"
+                minLength={6}
+              />
+              {isSignUp && (
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  Минимум 6 символов
+                </p>
+              )}
+            </div>
           </div>
 
           <div>
