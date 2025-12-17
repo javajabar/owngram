@@ -40,6 +40,8 @@ export function Sidebar() {
 
   const fetchChats = async () => {
     if (!user) return
+    
+    try {
         // Fetch my profile
         const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
         if (profile) setMyProfile(profile as Profile)
@@ -54,93 +56,97 @@ export function Sidebar() {
             `)
             .eq('user_id', user.id)
         
-        if (memberData) {
-            // For each chat, fetch last message and other user (for DM)
-            const chatsWithDetails = await Promise.all(
-                memberData.map(async (m: any) => {
-                    const chat = m.chats
-                    if (!chat) return null
-                    
-                    // Get last message
-                    const { data: lastMessageData } = await supabase
-                        .from('messages')
-                        .select('*, sender:profiles(*)')
+        if (!memberData || memberData.length === 0) {
+            setChats([])
+            return
+        }
+        
+        const chatIds = memberData.map(m => m.chat_id).filter(Boolean)
+        if (chatIds.length === 0) {
+            setChats([])
+            return
+        }
+        
+        // Get current chat ID
+        const currentChatId = typeof window !== 'undefined' 
+            ? (() => {
+                const pathParts = window.location.pathname.split('/').filter(Boolean)
+                if (pathParts[0] === 'chat' && pathParts[1]) {
+                    return pathParts[1]
+                }
+                return null
+            })()
+            : null
+        
+        // Fetch all last messages in one query (optimized)
+        const { data: allLastMessages } = await supabase
+            .from('messages')
+            .select('*, sender:profiles(*)')
+            .in('chat_id', chatIds)
+            .order('created_at', { ascending: false })
+        
+        // Group messages by chat_id and get the latest for each
+        const lastMessagesMap = new Map<string, any>()
+        if (allLastMessages) {
+            allLastMessages.forEach((msg: any) => {
+                if (!lastMessagesMap.has(msg.chat_id)) {
+                    lastMessagesMap.set(msg.chat_id, msg)
+                }
+            })
+        }
+        
+        // Fetch unread counts for all chats at once (optimized)
+        const { data: unreadMessages } = await supabase
+            .from('messages')
+            .select('chat_id')
+            .in('chat_id', chatIds)
+            .neq('sender_id', user.id)
+            .is('read_at', null)
+        
+        // Count unread per chat
+        const unreadCountMap = new Map<string, number>()
+        if (unreadMessages) {
+            unreadMessages.forEach((msg: any) => {
+                if (msg.chat_id !== currentChatId) {
+                    unreadCountMap.set(msg.chat_id, (unreadCountMap.get(msg.chat_id) || 0) + 1)
+                }
+            })
+        }
+        
+        // For each chat, fetch last message and other user (for DM)
+        const chatsWithDetails = await Promise.all(
+            memberData.map(async (m: any) => {
+                const chat = m.chats
+                if (!chat) return null
+                
+                const lastMessage = lastMessagesMap.get(chat.id) || null
+                const unreadCount = currentChatId === chat.id ? 0 : (unreadCountMap.get(chat.id) || 0)
+                
+                // For DM, get other user (or self for "Избранное")
+                let otherUser = null
+                if (chat.type === 'dm') {
+                    const { data: otherMember } = await supabase
+                        .from('chat_members')
+                        .select('profiles(*)')
                         .eq('chat_id', chat.id)
-                        .order('created_at', { ascending: false })
-                        .limit(1)
-                    const lastMessage = lastMessageData && lastMessageData.length > 0 ? lastMessageData[0] : null
-                    
-                    // For DM, get other user (or self for "Избранное")
-                    let otherUser = null
-                    if (chat.type === 'dm') {
-                        const { data: otherMember } = await supabase
-                            .from('chat_members')
-                            .select('profiles(*)')
-                            .eq('chat_id', chat.id)
-                            .neq('user_id', user.id)
-                            .maybeSingle()
-                        if (otherMember?.profiles) {
-                            otherUser = otherMember.profiles
-                        } else {
-                            // If no other user, this is "Избранное" (self-chat)
-                            // Use current user's profile
-                            const { data: selfProfile } = await supabase
-                                .from('profiles')
-                                .select('*')
-                                .eq('id', user.id)
-                                .single()
-                            if (selfProfile) {
-                                otherUser = selfProfile
-                            }
-                        }
-                    }
-                    
-                    // Count unread messages - only if not currently viewing this chat
-                    let unreadCount = 0
-                    const currentChatId = typeof window !== 'undefined' 
-                        ? (() => {
-                            const pathParts = window.location.pathname.split('/').filter(Boolean)
-                            // Path format: /chat/[id] or /chat
-                            if (pathParts[0] === 'chat' && pathParts[1]) {
-                                return pathParts[1]
-                            }
-                            return null
-                        })()
-                        : null
-                    
-                    // If we're currently viewing this chat, unread count should be 0
-                    if (currentChatId === chat.id) {
-                        unreadCount = 0
+                        .neq('user_id', user.id)
+                        .maybeSingle()
+                    if (otherMember?.profiles) {
+                        otherUser = otherMember.profiles
                     } else {
-                        // Count messages from other users that haven't been read (read_at IS NULL)
-                        try {
-                            const { count, error } = await supabase
-                                .from('messages')
-                                .select('*', { count: 'exact', head: true })
-                                .eq('chat_id', chat.id)
-                                .neq('sender_id', user.id)
-                                .is('read_at', null)
-                            
-                            if (error) {
-                                console.error('Error counting unread messages:', error)
-                                unreadCount = 0
-                            } else {
-                                unreadCount = count || 0
-                            }
-                        } catch (e) {
-                            console.error('Exception counting unread messages:', e)
-                            unreadCount = 0
-                        }
+                        // If no other user, this is "Избранное" (self-chat)
+                        otherUser = profile as Profile
                     }
-                    
-                    return {
-                        ...chat,
-                        lastMessage: lastMessage || null,
-                        otherUser: otherUser || null,
-                        unreadCount: unreadCount || 0
-                    }
-                })
-            )
+                }
+                
+                return {
+                    ...chat,
+                    lastMessage: lastMessage || null,
+                    otherUser: otherUser || null,
+                    unreadCount: unreadCount || 0
+                }
+            })
+        )
             
             let validChats = chatsWithDetails.filter(Boolean) as any[]
             
@@ -173,7 +179,7 @@ export function Sidebar() {
                 }
             })
             
-            // Check online status for all other users
+            // Check online status for all other users (only if column exists)
             if (otherUserIds.size > 0) {
                 try {
                     const userIdsArray = Array.from(otherUserIds)
@@ -183,6 +189,10 @@ export function Sidebar() {
                         .in('id', userIdsArray)
                     
                     if (error) {
+                        // If column doesn't exist, just skip online status
+                        if (error.code === '42703') {
+                            return
+                        }
                         console.error('Error fetching online status:', error)
                         return
                     }
@@ -201,7 +211,11 @@ export function Sidebar() {
                         })
                         setOnlineUsers(onlineSet)
                     }
-                } catch (error) {
+                } catch (error: any) {
+                    // If column doesn't exist, just skip
+                    if (error?.code === '42703') {
+                        return
+                    }
                     console.error('Error checking online status:', error)
                 }
             }
@@ -316,11 +330,20 @@ export function Sidebar() {
       lastUpdate = now
       
       try {
-        await supabase
+        const { error } = await supabase
           .from('profiles')
           .update({ last_seen_at: new Date().toISOString() })
           .eq('id', user.id)
-      } catch (error) {
+        
+        if (error && error.code === '42703') {
+          // Column doesn't exist, stop trying to update
+          return
+        }
+      } catch (error: any) {
+        if (error?.code === '42703') {
+          // Column doesn't exist, stop trying
+          return
+        }
         console.error('Error updating status:', error)
       }
     }
@@ -592,7 +615,7 @@ export function Sidebar() {
         }
     })
     
-    // Subscribe to updates for all other users
+    // Subscribe to updates for all other users (only if column exists)
     otherUserIds.forEach(userId => {
         const profileChannel = supabase.channel(`profile_status:${userId}`)
             .on('postgres_changes', {
@@ -602,7 +625,8 @@ export function Sidebar() {
                 filter: `id=eq.${userId}`
             }, (payload) => {
                 const updated = payload.new as Profile
-                if (updated.last_seen_at) {
+                // Only process if last_seen_at exists
+                if ('last_seen_at' in updated && updated.last_seen_at) {
                     const lastSeen = new Date(updated.last_seen_at)
                     const now = new Date()
                     const diffMinutes = (now.getTime() - lastSeen.getTime()) / 60000

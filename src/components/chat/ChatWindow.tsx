@@ -67,11 +67,22 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       lastUpdate = now
       
       try {
-        await supabase
+        // Check if column exists by trying to update
+        const { error } = await supabase
           .from('profiles')
           .update({ last_seen_at: new Date().toISOString() })
           .eq('id', user.id)
-      } catch (error) {
+        
+        if (error && error.code === '42703') {
+          // Column doesn't exist, stop trying to update
+          console.warn('last_seen_at column does not exist in profiles table')
+          return
+        }
+      } catch (error: any) {
+        if (error?.code === '42703') {
+          // Column doesn't exist, stop trying
+          return
+        }
         console.error('Error updating status:', error)
       }
     }
@@ -105,9 +116,17 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     }
   }, [user])
   
-  // Check other user's online status
+  // Check other user's online status (only if column exists)
   useEffect(() => {
     if (!otherUser || otherUser.id === user?.id) return
+    
+    // Check if last_seen_at exists in the profile
+    if (!('last_seen_at' in otherUser) || !otherUser.last_seen_at) {
+      // Column doesn't exist or is null, show offline
+      setIsOnline(false)
+      setLastSeen(null)
+      return
+    }
     
     const checkOnlineStatus = () => {
       if (otherUser.last_seen_at) {
@@ -125,7 +144,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     
     checkOnlineStatus()
     
-    // Subscribe to profile changes
+    // Subscribe to profile changes (only if column exists)
     const channel = supabase.channel(`profile:${otherUser.id}`)
       .on('postgres_changes', {
         event: 'UPDATE',
@@ -135,7 +154,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       }, (payload) => {
         const updated = payload.new as Profile
         setOtherUser(prev => prev ? { ...prev, ...updated } : null)
-        if (updated.last_seen_at) {
+        // Only process if last_seen_at exists
+        if ('last_seen_at' in updated && updated.last_seen_at) {
           const lastSeenDate = new Date(updated.last_seen_at)
           const now = new Date()
           const diffMinutes = (now.getTime() - lastSeenDate.getTime()) / 60000
