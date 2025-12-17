@@ -592,7 +592,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           if (signal.from_user_id === otherUser.id && signal.to_user_id === user.id) {
             if (signal.signal_type === 'call-request') {
               setIncomingCall(true)
-              soundManager.playReceiveMessage() // Play notification sound
+              // Play notification sound for incoming call
+              soundManager.playMessageReceived()
             } else if (signal.signal_type === 'call-accept' && isCalling) {
               setIsInCall(true)
               setIsCalling(false)
