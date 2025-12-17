@@ -425,19 +425,23 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         )}
         
         {/* Time and checkmarks inline */}
-        <div className={cn("text-[11px] flex items-center gap-0.5 shrink-0", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
+        <div className={cn("text-[10px] flex items-center gap-1 shrink-0", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
             <span className="opacity-70 whitespace-nowrap">{format(new Date(message.created_at), 'HH:mm')}</span>
             {isMe && (
-                <span className="flex items-center gap-0.5" title={message.read_at ? 'Прочитано' : message.delivered_at ? 'Доставлено' : 'Отправляется...'}>
+                <span className="relative flex items-center" title={message.read_at ? 'Прочитано' : message.delivered_at ? 'Доставлено' : 'Отправляется...'}>
                     {message.delivered_at ? (
-                        <>
-                            <Check className="w-3 h-3 text-gray-500 dark:text-gray-400" />
-                            {message.read_at && (
-                                <Check className="w-3 h-3 text-blue-500 dark:text-blue-400" />
-                            )}
-                        </>
+                        message.read_at ? (
+                            // Two checkmarks like in Telegram - second one slightly offset
+                            <span className="relative inline-flex items-center">
+                                <Check className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
+                                <Check className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 absolute left-1.5" />
+                            </span>
+                        ) : (
+                            // Single checkmark for delivered
+                            <Check className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+                        )
                     ) : (
-                        <span className="w-3 h-3 text-gray-400">⏳</span>
+                        <span className="w-3.5 h-3.5 text-gray-400">⏳</span>
                     )}
                 </span>
             )}
