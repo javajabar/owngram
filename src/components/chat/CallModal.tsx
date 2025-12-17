@@ -48,6 +48,10 @@ export function CallModal({
       // Ensure audio is enabled
       remoteVideoRef.current.volume = 1.0
       remoteVideoRef.current.muted = false
+      // Play the video to ensure audio starts
+      remoteVideoRef.current.play().catch(err => {
+        console.error('Error playing remote video:', err)
+      })
     }
   }, [remoteStream])
 
@@ -64,7 +68,6 @@ export function CallModal({
               autoPlay
               playsInline
               muted={false}
-              volume={1.0}
               className="w-full h-full object-cover"
             />
           ) : (
