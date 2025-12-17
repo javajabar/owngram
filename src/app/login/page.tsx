@@ -148,29 +148,39 @@ export default function LoginPage() {
             throw signInError
           }
 
-          // Wait a bit for session to be set
-          console.log('⏳ Waiting for session...')
-          await new Promise(resolve => setTimeout(resolve, 500))
+          // Wait for cookies to be set properly
+          console.log('⏳ Waiting for session cookies...')
+          await new Promise(resolve => setTimeout(resolve, 1000))
           
           // Check user and wait for session
           console.log('👤 Checking user...')
           await checkUser()
           
-          // Double check session
-          const { data: { session }, error: sessionError } = await supabase.auth.getSession()
-          console.log('Session check:', { 
-            hasSession: !!session, 
-            hasUser: !!session?.user,
-            error: sessionError?.message 
-          })
+          // Double check session multiple times to ensure cookies are set
+          let sessionConfirmed = false
+          for (let i = 0; i < 3; i++) {
+            const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+            console.log(`Session check ${i + 1}/3:`, { 
+              hasSession: !!session, 
+              hasUser: !!session?.user,
+              error: sessionError?.message 
+            })
+            
+            if (session && session.user) {
+              sessionConfirmed = true
+              break
+            }
+            
+            // Wait a bit more if session not found
+            if (i < 2) {
+              await new Promise(resolve => setTimeout(resolve, 500))
+            }
+          }
           
-          if (session && session.user) {
+          if (sessionConfirmed) {
             console.log('✅ Session confirmed, redirecting to /chat')
-            router.push('/chat')
-            // Force a refresh to ensure middleware picks up the session
-            setTimeout(() => {
-              window.location.href = '/chat'
-            }, 100)
+            // Use window.location for full page reload to ensure middleware sees the session
+            window.location.href = '/chat'
           } else {
             console.error('❌ No session after login')
             setError('Не удалось создать сессию. Попробуйте еще раз.')
@@ -241,19 +251,36 @@ export default function LoginPage() {
           }
         }
 
-        // Wait a bit for session to be set
-        await new Promise(resolve => setTimeout(resolve, 300))
+        // Wait for cookies to be set properly
+        console.log('⏳ Waiting for session cookies after OTP...')
+        await new Promise(resolve => setTimeout(resolve, 1000))
         
         // Check user and wait for session
         await checkUser()
         
-        // Double check session
-        const { data: { session } } = await supabase.auth.getSession()
-        if (session) {
+        // Double check session multiple times
+        let sessionConfirmed = false
+        for (let i = 0; i < 3; i++) {
+          const { data: { session } } = await supabase.auth.getSession()
+          console.log(`OTP Session check ${i + 1}/3:`, { hasSession: !!session, hasUser: !!session?.user })
+          
+          if (session && session.user) {
+            sessionConfirmed = true
+            break
+          }
+          
+          if (i < 2) {
+            await new Promise(resolve => setTimeout(resolve, 500))
+          }
+        }
+        
+        if (sessionConfirmed) {
+          console.log('✅ OTP Session confirmed, redirecting to /chat')
           setShowOtpModal(false)
-          router.push('/chat')
-          router.refresh()
+          // Use window.location for full page reload
+          window.location.href = '/chat'
         } else {
+          console.error('❌ No session after OTP verification')
           setOtpError('Не удалось создать сессию. Попробуйте еще раз.')
         }
       }

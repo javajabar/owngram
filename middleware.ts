@@ -62,7 +62,19 @@ export async function middleware(request: NextRequest) {
   if (request.nextUrl.pathname.startsWith('/chat')) {
     // Only allow if session exists
     if (!session) {
-      return NextResponse.redirect(new URL('/login', request.url))
+      // Check if there are any auth-related cookies (session might be setting up)
+      const hasAuthCookies = request.cookies.getAll().some(cookie => 
+        cookie.name.includes('supabase') || 
+        cookie.name.includes('sb-') ||
+        cookie.name.includes('auth-token')
+      )
+      
+      // If no session and no auth cookies, definitely redirect
+      if (!hasAuthCookies) {
+        return NextResponse.redirect(new URL('/login', request.url))
+      }
+      // If there are auth cookies but no session yet, allow through (session is setting up)
+      // The client-side will handle showing appropriate UI if session is missing
     }
   }
   
