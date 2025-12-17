@@ -23,6 +23,42 @@ export default function SettingsPage() {
   const [emailChangeLoading, setEmailChangeLoading] = useState(false)
   const [theme, setTheme] = useState<Theme>('dark-blue')
 
+  const applyTheme = (selectedTheme: Theme) => {
+    const html = document.querySelector('html')
+    if (!html) return
+    
+    // Remove all theme classes
+    html.classList.remove('light', 'dark', 'dark-blue')
+    html.removeAttribute('data-theme')
+    
+    if (selectedTheme === 'light') {
+      html.classList.add('light')
+      html.setAttribute('data-theme', 'light')
+    } else if (selectedTheme === 'dark') {
+      html.classList.add('dark')
+      html.setAttribute('data-theme', 'dark')
+    } else {
+      html.classList.add('dark-blue')
+      html.setAttribute('data-theme', 'dark-blue')
+    }
+    
+    localStorage.setItem('theme', selectedTheme)
+    
+    // Force re-render
+    window.dispatchEvent(new Event('resize'))
+  }
+
+  // Apply theme on mount
+  useEffect(() => {
+    const savedTheme = localStorage.getItem('theme') as Theme
+    if (savedTheme) {
+      setTheme(savedTheme)
+      applyTheme(savedTheme)
+    } else {
+      applyTheme('dark-blue')
+    }
+  }, [])
+
   useEffect(() => {
     if (!user) return
 
@@ -51,7 +87,6 @@ export default function SettingsPage() {
         const savedTheme = localStorage.getItem('theme') as Theme
         if (savedTheme) {
           setTheme(savedTheme)
-          applyTheme(savedTheme)
         }
       } catch (error) {
         console.error('Error fetching data:', error)
@@ -63,21 +98,6 @@ export default function SettingsPage() {
 
     fetchData()
   }, [user])
-
-  const applyTheme = (selectedTheme: Theme) => {
-    const root = document.documentElement
-    root.classList.remove('light', 'dark', 'dark-blue')
-    
-    if (selectedTheme === 'light') {
-      root.classList.add('light')
-    } else if (selectedTheme === 'dark') {
-      root.classList.add('dark')
-    } else {
-      root.classList.add('dark-blue')
-    }
-    
-    localStorage.setItem('theme', selectedTheme)
-  }
 
   const handleThemeChange = (newTheme: Theme) => {
     setTheme(newTheme)
@@ -171,16 +191,19 @@ export default function SettingsPage() {
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
             Имя пользователя
           </label>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => {
-              const value = e.target.value.replace(/[^a-zA-Z0-9_]/g, '')
-              setUsername(value)
-            }}
-            className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
-            placeholder="username"
-          />
+          <div className="relative">
+            <span className="absolute left-4 top-2.5 text-gray-400 dark:text-gray-500 text-sm">@</span>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => {
+                const value = e.target.value.replace(/[^a-zA-Z0-9_]/g, '')
+                setUsername(value)
+              }}
+              className="w-full pl-7 pr-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              placeholder="username"
+            />
+          </div>
           <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
             Только английские буквы, цифры и подчеркивание
           </p>

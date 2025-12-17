@@ -219,7 +219,9 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
       <div 
         onContextMenu={handleContextMenu}
         className={cn(
-            "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out",
+            message.attachments?.some((a: any) => a.type === 'image')
+                ? "max-w-[85%] px-0 py-0 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out"
+                : "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out",
             message.deleted_at && message.deleted_for_all
                 ? "opacity-50 italic"
                 : "",
@@ -361,11 +363,11 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
                 <audio ref={audioRef} src={voiceAttachment.url} className="hidden" preload="metadata" />
             </div>
         ) : message.attachments?.some((a: any) => a.type === 'image') ? (
-            <div className="space-y-2">
+            <div className="space-y-2 w-full">
                 {message.attachments.filter((a: any) => a.type === 'image').map((attachment: any, idx: number) => (
                     <div
                         key={idx}
-                        className="relative block rounded-lg overflow-hidden max-w-sm cursor-pointer group"
+                        className="relative block rounded-lg overflow-hidden w-full cursor-pointer"
                         onClick={(e) => {
                             e.stopPropagation()
                             if (onImageClick) {
@@ -376,9 +378,9 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
                         <img 
                             src={attachment.url} 
                             alt={attachment.name || 'Image'} 
-                            className="w-full h-auto object-cover hover:opacity-90 transition-opacity rounded-lg"
+                            className="w-full h-auto object-cover hover:opacity-90 transition-opacity"
                         />
-                        {/* Time overlay on image */}
+                        {/* Time overlay on image - always visible */}
                         <div className={cn(
                             "absolute bottom-1 right-1 px-1.5 py-0.5 rounded flex items-center gap-0.5",
                             "bg-black/50 backdrop-blur-sm text-white text-[8px]"
@@ -459,28 +461,30 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
             </div>
         )}
         
-        {/* Time and checkmarks inline */}
-        <div className={cn("text-[8px] flex items-center gap-1 shrink-0", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
-            <span className="opacity-70 whitespace-nowrap">{format(new Date(message.created_at), 'HH:mm')}</span>
-            {isMe && (
-                <span className="relative flex items-center" title={message.read_at ? 'Прочитано' : message.delivered_at ? 'Доставлено' : 'Отправляется...'}>
-                    {message.delivered_at ? (
-                        message.read_at ? (
-                            // Two checkmarks like in Telegram - second one slightly offset
-                            <span className="relative inline-flex items-center">
-                                <Check className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
-                                <Check className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 absolute left-1.5" />
-                            </span>
+        {/* Time and checkmarks inline - only show if not image */}
+        {!message.attachments?.some((a: any) => a.type === 'image') && (
+            <div className={cn("text-[8px] flex items-center gap-1 shrink-0", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
+                <span className="opacity-70 whitespace-nowrap">{format(new Date(message.created_at), 'HH:mm')}</span>
+                {isMe && (
+                    <span className="relative flex items-center" title={message.read_at ? 'Прочитано' : message.delivered_at ? 'Доставлено' : 'Отправляется...'}>
+                        {message.delivered_at ? (
+                            message.read_at ? (
+                                // Two checkmarks like in Telegram - second one slightly offset
+                                <span className="relative inline-flex items-center">
+                                    <Check className="w-3 h-3 text-blue-500 dark:text-blue-400" />
+                                    <Check className="w-3 h-3 text-blue-500 dark:text-blue-400 absolute left-1.5" />
+                                </span>
+                            ) : (
+                                // Single checkmark for delivered
+                                <Check className="w-3 h-3 text-gray-500 dark:text-gray-400" />
+                            )
                         ) : (
-                            // Single checkmark for delivered
-                            <Check className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-                        )
-                    ) : (
-                        <span className="w-3.5 h-3.5 text-gray-400">⏳</span>
-                    )}
-                </span>
-            )}
-        </div>
+                            <span className="w-3 h-3 text-gray-400">⏳</span>
+                        )}
+                    </span>
+                )}
+            </div>
+        )}
       </div>
     </div>
   )

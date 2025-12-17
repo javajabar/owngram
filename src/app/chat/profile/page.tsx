@@ -22,6 +22,7 @@ export default function ProfilePage() {
   const [status, setStatus] = useState('')
   const [bio, setBio] = useState('')
   const [birthDate, setBirthDate] = useState('')
+  const [birthDateInput, setBirthDateInput] = useState('') // Raw input without formatting
   const [avatarUrl, setAvatarUrl] = useState('')
   const [email, setEmail] = useState('')
   const [newEmail, setNewEmail] = useState('')
@@ -58,7 +59,14 @@ export default function ProfilePage() {
           setFullName(data.full_name || '')
           setStatus(data.status || '')
           setBio(data.bio || '')
-          setBirthDate(data.birth_date || '')
+          const bd = data.birth_date || ''
+          setBirthDate(bd)
+          // Convert DD.MM.YYYY to raw format for input (remove dots)
+          if (bd) {
+            setBirthDateInput(bd.replace(/\./g, ''))
+          } else {
+            setBirthDateInput('')
+          }
           setAvatarUrl(data.avatar_url || '')
           // Get email from user object
           if (user?.email) {
@@ -82,7 +90,7 @@ export default function ProfilePage() {
 
       try {
           const updates = {
-              username: `@${username.replace('@', '')}`, // Ensure @ is present
+              // Username is read-only, not updated here
               full_name: fullName,
               status: status,
               bio: bio || null,
@@ -213,15 +221,28 @@ export default function ProfilePage() {
                 <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Username</label>
                     <div className="relative">
-                        <span className="absolute left-3 top-2.5 text-gray-400">@</span>
+                        <span className="absolute left-3 top-2.5 text-gray-400 dark:text-gray-500">@</span>
                         <input
                             type="text"
                             value={username}
-                            onChange={(e) => setUsername(e.target.value.replace(/[^a-z0-9_]/g, '').toLowerCase())}
-                            className="w-full pl-7 pr-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
+                            readOnly
+                            onClick={(e) => {
+                                e.currentTarget.select()
+                                navigator.clipboard.writeText(`@${username}`).then(() => {
+                                    // Show a brief feedback
+                                    const input = e.currentTarget
+                                    const originalBg = input.style.backgroundColor
+                                    input.style.backgroundColor = 'rgba(34, 197, 94, 0.2)'
+                                    setTimeout(() => {
+                                        input.style.backgroundColor = originalBg
+                                    }, 500)
+                                })
+                            }}
+                            className="w-full pl-7 pr-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl outline-none cursor-pointer select-all"
+                            title="Click to copy username"
                         />
                     </div>
-                    <p className="text-xs text-gray-400 mt-1">People can find you by this username.</p>
+                    <p className="text-xs text-gray-400 mt-1">Click to copy username</p>
                 </div>
 
                 <div>
@@ -260,11 +281,110 @@ export default function ProfilePage() {
                 <div>
                     <label className="block text-xs font-bold text-gray-500 uppercase mb-1">Дата рождения (необязательно)</label>
                     <input
-                        type="date"
+                        type="text"
                         value={birthDate}
-                        onChange={(e) => setBirthDate(e.target.value)}
+                        onChange={(e) => {
+                            // Remove all non-digits
+                            let raw = e.target.value.replace(/\D/g, '')
+                            
+                            // Limit to 8 digits
+                            if (raw.length > 8) {
+                                raw = raw.slice(0, 8)
+                            }
+                            
+                            setBirthDateInput(raw)
+                            
+                            // Format with dots as user types
+                            if (raw.length === 0) {
+                                setBirthDate('')
+                            } else if (raw.length === 1) {
+                                // Single digit: 4 -> 4
+                                setBirthDate(raw)
+                            } else if (raw.length === 2) {
+                                // Two digits: 44 -> 04.04 (if > 31, treat as D.M format)
+                                const firstTwo = parseInt(raw)
+                                if (firstTwo > 31) {
+                                    // 44 -> 04.04
+                                    const day = raw[0].padStart(2, '0')
+                                    const month = raw[1].padStart(2, '0')
+                                    setBirthDate(`${day}.${month}`)
+                                } else {
+                                    // 26 -> 26
+                                    setBirthDate(raw)
+                                }
+                            } else if (raw.length === 3) {
+                                // Three digits: 442 -> 04.04.2
+                                const day = raw[0].padStart(2, '0')
+                                const month = raw[1].padStart(2, '0')
+                                const year = raw[2]
+                                setBirthDate(`${day}.${month}.${year}`)
+                            } else if (raw.length === 4) {
+                                // Four digits: 4420 -> 04.04.20
+                                const day = raw[0].padStart(2, '0')
+                                const month = raw[1].padStart(2, '0')
+                                const year = raw.slice(2, 4)
+                                setBirthDate(`${day}.${month}.${year}`)
+                            } else if (raw.length === 5) {
+                                // Five digits: 44200 -> 04.04.200
+                                const day = raw[0].padStart(2, '0')
+                                const month = raw[1].padStart(2, '0')
+                                const year = raw.slice(2, 5)
+                                setBirthDate(`${day}.${month}.${year}`)
+                            } else if (raw.length === 6) {
+                                // Six digits: 442005 -> 04.04.2005
+                                const day = raw[0].padStart(2, '0')
+                                const month = raw[1].padStart(2, '0')
+                                const year = raw.slice(2, 6)
+                                setBirthDate(`${day}.${month}.${year}`)
+                            } else if (raw.length === 7) {
+                                // Seven digits: 2610200 -> 26.10.200
+                                const day = raw.slice(0, 2).padStart(2, '0')
+                                const month = raw.slice(2, 4).padStart(2, '0')
+                                const year = raw.slice(4, 7)
+                                setBirthDate(`${day}.${month}.${year}`)
+                            } else if (raw.length === 8) {
+                                // Full date: 26102005 -> 26.10.2005
+                                const day = raw.slice(0, 2).padStart(2, '0')
+                                const month = raw.slice(2, 4).padStart(2, '0')
+                                const year = raw.slice(4, 8)
+                                setBirthDate(`${day}.${month}.${year}`)
+                            }
+                        }}
+                        onBlur={(e) => {
+                            // On blur, ensure proper format with leading zeros
+                            const raw = birthDateInput.replace(/\D/g, '')
+                            if (raw.length === 6) {
+                                // 442005 -> 04.04.2005
+                                const day = raw[0].padStart(2, '0')
+                                const month = raw[1].padStart(2, '0')
+                                const year = raw.slice(2, 6)
+                                setBirthDate(`${day}.${month}.${year}`)
+                            } else if (raw.length === 8) {
+                                // 26102005 -> 26.10.2005
+                                const day = raw.slice(0, 2).padStart(2, '0')
+                                const month = raw.slice(2, 4).padStart(2, '0')
+                                const year = raw.slice(4, 8)
+                                setBirthDate(`${day}.${month}.${year}`)
+                            } else if (raw.length > 0 && raw.length < 6) {
+                                // If incomplete, try to format what we have
+                                if (raw.length === 2 && parseInt(raw) > 31) {
+                                    // 44 -> 04.04
+                                    const day = raw[0].padStart(2, '0')
+                                    const month = raw[1].padStart(2, '0')
+                                    setBirthDate(`${day}.${month}`)
+                                } else if (raw.length >= 3) {
+                                    // Try to format with single digit day/month
+                                    const day = raw[0].padStart(2, '0')
+                                    const month = raw[1].padStart(2, '0')
+                                    const year = raw.slice(2)
+                                    setBirthDate(`${day}.${month}.${year}`)
+                                }
+                            }
+                        }}
+                        placeholder="26102005"
                         className="w-full px-4 py-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                    <p className="text-xs text-gray-400 mt-1">Введите дату в формате: ДДММГГГГ (например: 26102005 или 442005)</p>
                 </div>
 
                 {/* Email Section */}
