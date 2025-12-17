@@ -7,6 +7,7 @@ import { useAuthStore } from '@/store/useAuthStore'
 import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X, Search } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { MessageBubble } from './MessageBubble'
+import { ImageViewer } from '@/components/ImageViewer'
 
 // Format last seen time
 function formatLastSeen(dateStr: string): string {
@@ -50,6 +51,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [searchResults, setSearchResults] = useState<Message[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [showSearch, setShowSearch] = useState(false)
+  const [viewingImage, setViewingImage] = useState<string | null>(null)
+  const [viewingAvatar, setViewingAvatar] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -778,6 +781,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                         key={msg.id} 
                         message={msg} 
                         showAvatar={isFirstInSeries}
+                        onImageClick={(imageUrl) => setViewingImage(imageUrl)}
+                        onAvatarClick={(avatarUrl) => setViewingAvatar(avatarUrl)}
                         onReply={(message) => {
                             setReplyingTo(message)
                             setEditingMessage(null)
@@ -832,7 +837,15 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 <div className="h-24 bg-gradient-to-r from-blue-500 to-purple-600"></div>
                 <div className="px-6 pb-6">
                     <div className="relative -mt-12 mb-4">
-                        <div className="w-24 h-24 rounded-full border-4 border-white dark:border-gray-900 overflow-hidden bg-gray-200 flex items-center justify-center">
+                        <div 
+                            className="w-24 h-24 rounded-full border-4 border-white dark:border-gray-900 overflow-hidden bg-gray-200 flex items-center justify-center cursor-pointer hover:opacity-90 transition-opacity"
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                if (otherUser?.avatar_url) {
+                                    setViewingAvatar(otherUser.avatar_url)
+                                }
+                            }}
+                        >
                             {otherUser?.avatar_url ? (
                                 <img src={otherUser.avatar_url} className="w-full h-full object-cover" alt={otherUser.username || 'User'} />
                             ) : (
@@ -866,6 +879,24 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 </div>
             </div>
         </div>
+      )}
+
+      {/* Image Viewer Modal */}
+      {viewingImage && (
+        <ImageViewer
+          imageUrl={viewingImage}
+          alt="Message image"
+          onClose={() => setViewingImage(null)}
+        />
+      )}
+
+      {/* Avatar Viewer Modal */}
+      {viewingAvatar && (
+        <ImageViewer
+          imageUrl={viewingAvatar}
+          alt="Avatar"
+          onClose={() => setViewingAvatar(null)}
+        />
       )}
 
       {/* Input */}

@@ -7,6 +7,7 @@ import { Profile } from '@/types'
 import { X, Camera, Save, ArrowLeft } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { ImageCropper } from '@/components/ImageCropper'
+import { ImageViewer } from '@/components/ImageViewer'
 
 export default function ProfilePage() {
   const { user } = useAuthStore()
@@ -28,6 +29,7 @@ export default function ProfilePage() {
   // Image cropper state
   const [showCropper, setShowCropper] = useState(false)
   const [selectedImage, setSelectedImage] = useState<string | null>(null)
+  const [viewingAvatar, setViewingAvatar] = useState(false)
 
   useEffect(() => {
     if (!user) return
@@ -163,7 +165,12 @@ export default function ProfilePage() {
             <div className="flex flex-col items-center">
                 <div className="w-24 h-24 rounded-full bg-gray-200 dark:bg-gray-700 relative overflow-hidden group">
                     {avatarUrl ? (
-                        <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                        <img 
+                            src={avatarUrl} 
+                            alt="Avatar" 
+                            className="w-full h-full object-cover cursor-pointer"
+                            onClick={() => setViewingAvatar(true)}
+                        />
                     ) : (
                         <div className="w-full h-full flex items-center justify-center text-3xl font-bold text-gray-400">
                             {username?.[0]?.toUpperCase() || 'U'}
@@ -331,6 +338,15 @@ export default function ProfilePage() {
                         alert('Ошибка загрузки фото')
                     }
                 }}
+            />
+        )}
+
+        {/* Avatar Viewer Modal */}
+        {viewingAvatar && avatarUrl && (
+            <ImageViewer
+                imageUrl={avatarUrl}
+                alt="Avatar"
+                onClose={() => setViewingAvatar(false)}
             />
         )}
     </div>

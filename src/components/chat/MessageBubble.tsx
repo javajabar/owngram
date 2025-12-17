@@ -13,9 +13,11 @@ interface MessageBubbleProps {
   onEdit?: (message: Message) => void
   onDelete?: (messageId: string, deleteForAll: boolean) => void
   showAvatar?: boolean
+  onImageClick?: (imageUrl: string) => void
+  onAvatarClick?: (avatarUrl: string) => void
 }
 
-export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar = false }: MessageBubbleProps) {
+export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar = false, onImageClick, onAvatarClick }: MessageBubbleProps) {
   const { user } = useAuthStore()
   const isMe = user?.id === message.sender_id
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
@@ -194,7 +196,14 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
       {!isMe && (
         <div className="w-8 h-8 shrink-0">
           {showAvatar && (
-            <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden bg-gray-200 dark:bg-gray-700">
+            <div 
+              className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden bg-gray-200 dark:bg-gray-700 cursor-pointer hover:opacity-90 transition-opacity"
+              onClick={() => {
+                if (message.sender?.avatar_url && onAvatarClick) {
+                  onAvatarClick(message.sender.avatar_url)
+                }
+              }}
+            >
               {message.sender?.avatar_url ? (
                 <img src={message.sender.avatar_url} className="w-full h-full object-cover" alt={message.sender.full_name || message.sender.username || 'User'} />
               ) : (
@@ -354,19 +363,22 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         ) : message.attachments?.some((a: any) => a.type === 'image') ? (
             <div className="space-y-2">
                 {message.attachments.filter((a: any) => a.type === 'image').map((attachment: any, idx: number) => (
-                    <a
+                    <div
                         key={idx}
-                        href={attachment.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block rounded-lg overflow-hidden max-w-sm"
+                        className="block rounded-lg overflow-hidden max-w-sm cursor-pointer"
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            if (onImageClick) {
+                                onImageClick(attachment.url)
+                            }
+                        }}
                     >
                         <img 
                             src={attachment.url} 
                             alt={attachment.name || 'Image'} 
-                            className="w-full h-auto object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                            className="w-full h-auto object-cover hover:opacity-90 transition-opacity"
                         />
-                    </a>
+                    </div>
                 ))}
                 {message.content && message.content !== '📷 Фото' && (
                     <div className="text-sm break-words whitespace-pre-wrap font-object-sans">
