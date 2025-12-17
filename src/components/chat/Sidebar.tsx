@@ -956,17 +956,19 @@ export function Sidebar() {
                                     className="flex items-center gap-3 flex-1 min-w-0"
                                 >
                                     {/* Avatar */}
-                                    <div className="relative w-14 h-14 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700">
-                                        {avatarUrl ? (
-                                            <img src={avatarUrl} className="w-full h-full object-cover" alt={displayName} />
-                                        ) : (
-                                            <span className="text-gray-600 dark:text-gray-300 font-semibold text-lg">
-                                                {displayName[0]?.toUpperCase() || '?'}
-                                            </span>
-                                        )}
-                                        {/* Online indicator */}
+                                    <div className="relative w-14 h-14 rounded-full flex items-center justify-center shrink-0 overflow-visible bg-gray-200 dark:bg-gray-700">
+                                        <div className="w-14 h-14 rounded-full overflow-hidden">
+                                            {avatarUrl ? (
+                                                <img src={avatarUrl} className="w-full h-full object-cover" alt={displayName} />
+                                            ) : (
+                                                <span className="text-gray-600 dark:text-gray-300 font-semibold text-lg">
+                                                    {displayName[0]?.toUpperCase() || '?'}
+                                                </span>
+                                            )}
+                                        </div>
+                                        {/* Online indicator - частично на аватаре, частично на фоне */}
                                         {chat.type === 'dm' && chat.otherUser && chat.otherUser.id !== user?.id && onlineUsers.has(chat.otherUser.id) && (
-                                            <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full"></div>
+                                            <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full z-10" style={{ transform: 'translate(25%, 25%)' }}></div>
                                         )}
                                     </div>
                                     
