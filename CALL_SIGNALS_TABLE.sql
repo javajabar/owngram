@@ -39,3 +39,7 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- ВАЖНО: Включить Realtime для таблицы call_signals
+-- Выполните эту команду после создания таблицы:
+ALTER PUBLICATION supabase_realtime ADD TABLE call_signals;
+
