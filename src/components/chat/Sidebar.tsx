@@ -41,10 +41,14 @@ export function Sidebar() {
   const fetchChats = async () => {
     if (!user) return
     
+    setIsLoadingChats(true)
     try {
-        // Fetch my profile
-        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-        if (profile) setMyProfile(profile as Profile)
+        // Fetch my profile (cache to avoid repeated calls)
+        if (!myProfile) {
+            const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+            if (profile) setMyProfile(profile as Profile)
+        }
+        const profile = myProfile
 
         // Fetch my chats with last message and other user info
         const { data: memberData } = await supabase
@@ -95,23 +99,23 @@ export function Sidebar() {
             })
         }
         
-        // Fetch unread counts for all chats at once (optimized)
-        const { data: unreadMessages } = await supabase
-            .from('messages')
-            .select('chat_id')
-            .in('chat_id', chatIds)
-            .neq('sender_id', user.id)
-            .is('read_at', null)
+        // Fetch unread counts for all chats at once (optimized) - use parallel count queries
+        const unreadCountPromises = chatIds.map(async (chatId) => {
+            if (chatId === currentChatId) return { chatId, count: 0 }
+            const { count } = await supabase
+                .from('messages')
+                .select('*', { count: 'exact', head: true })
+                .eq('chat_id', chatId)
+                .neq('sender_id', user.id)
+                .is('read_at', null)
+            return { chatId, count: count || 0 }
+        })
         
-        // Count unread per chat
+        const unreadCountResults = await Promise.all(unreadCountPromises)
         const unreadCountMap = new Map<string, number>()
-        if (unreadMessages) {
-            unreadMessages.forEach((msg: any) => {
-                if (msg.chat_id !== currentChatId) {
-                    unreadCountMap.set(msg.chat_id, (unreadCountMap.get(msg.chat_id) || 0) + 1)
-                }
-            })
-        }
+        unreadCountResults.forEach(result => {
+            unreadCountMap.set(result.chatId, result.count)
+        })
         
         // For each chat, fetch last message and other user (for DM)
         const chatsWithDetails = await Promise.all(
@@ -222,6 +226,8 @@ export function Sidebar() {
     } catch (error) {
         console.error('Error fetching chats:', error)
         setChats([])
+    } finally {
+        setIsLoadingChats(false)
     }
   }
 
@@ -322,12 +328,15 @@ export function Sidebar() {
     if (!user) return
     
     let lastUpdate = 0
-    const MIN_UPDATE_INTERVAL = 30000 // 30 seconds minimum between updates
+    const MIN_UPDATE_INTERVAL = 10000 // 10 seconds minimum between updates (быстрее обновление)
+    let statusUpdateEnabled = true
     
-    const updateMyStatus = async () => {
+    const updateMyStatus = async (force = false) => {
+      if (!statusUpdateEnabled) return
+      
       const now = Date.now()
-      // Only update if at least 30 seconds have passed
-      if (now - lastUpdate < MIN_UPDATE_INTERVAL) {
+      // Only update if at least 10 seconds have passed (or forced)
+      if (!force && now - lastUpdate < MIN_UPDATE_INTERVAL) {
         return
       }
       lastUpdate = now
@@ -340,11 +349,13 @@ export function Sidebar() {
         
         if (error && error.code === '42703') {
           // Column doesn't exist, stop trying to update
+          statusUpdateEnabled = false
           return
         }
       } catch (error: any) {
         if (error?.code === '42703') {
           // Column doesn't exist, stop trying
+          statusUpdateEnabled = false
           return
         }
         console.error('Error updating status:', error)
@@ -352,23 +363,47 @@ export function Sidebar() {
     }
     
     // Update immediately
-    updateMyStatus()
+    updateMyStatus(true)
     
-    // Update every 30 seconds
-    const interval = setInterval(updateMyStatus, 30000)
+    // Update every 10 seconds (быстрее для более точного статуса)
+    const interval = setInterval(() => updateMyStatus(false), 10000)
     
-    // Debounced activity handler - only update after 30 seconds of inactivity
+    // Update on activity (debounced)
     let activityTimeout: NodeJS.Timeout | null = null
     const handleActivity = () => {
       if (activityTimeout) {
         clearTimeout(activityTimeout)
       }
-      // Only update after 30 seconds of no activity
-      activityTimeout = setTimeout(updateMyStatus, 30000)
+      // Update after 5 seconds of activity
+      activityTimeout = setTimeout(() => updateMyStatus(false), 5000)
+    }
+    
+    // Handle page visibility - update when page becomes visible
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        updateMyStatus(true) // Force update when page becomes visible
+      }
+    }
+    
+    // Handle page unload - send final update
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      // Use synchronous XMLHttpRequest for reliable delivery on page close
+      try {
+        const xhr = new XMLHttpRequest()
+        xhr.open('PATCH', `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`, false) // false = synchronous
+        xhr.setRequestHeader('Content-Type', 'application/json')
+        xhr.setRequestHeader('apikey', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '')
+        xhr.setRequestHeader('Authorization', `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''}`)
+        xhr.send(JSON.stringify({ last_seen_at: new Date().toISOString() }))
+      } catch (error) {
+        // Ignore errors on unload
+      }
     }
     
     window.addEventListener('mousemove', handleActivity, { passive: true })
     window.addEventListener('keydown', handleActivity, { passive: true })
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    window.addEventListener('beforeunload', handleBeforeUnload)
     
     return () => {
       clearInterval(interval)
@@ -377,6 +412,10 @@ export function Sidebar() {
       }
       window.removeEventListener('mousemove', handleActivity)
       window.removeEventListener('keydown', handleActivity)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      window.removeEventListener('beforeunload', handleBeforeUnload)
+      // Final update on cleanup
+      updateMyStatus(true)
     }
   }, [user])
 
@@ -898,8 +937,21 @@ export function Sidebar() {
                         </div>
                     )}))}
             </div>
-         ) : (
-            chats.length === 0 ? (
+         ) : isLoadingChats ? (
+                <div className="p-8 text-center text-gray-500">
+                    <div className="animate-pulse flex flex-col items-center">
+                        <div className="h-12 w-12 bg-gray-200 dark:bg-gray-700 rounded-full mb-4"></div>
+                        <p>Загрузка чатов...</p>
+                    </div>
+                </div>
+            ) : isLoadingChats ? (
+                <div className="p-8 text-center text-gray-500">
+                    <div className="animate-pulse flex flex-col items-center">
+                        <div className="h-12 w-12 bg-gray-200 dark:bg-gray-700 rounded-full mb-4"></div>
+                        <p>Загрузка чатов...</p>
+                    </div>
+                </div>
+            ) : chats.length === 0 ? (
                 <div className="p-8 text-center text-gray-500">
                     <p className="mb-2">No chats yet.</p>
                     <button onClick={() => setShowNewChat(true)} className="text-blue-500 hover:underline">Find friends</button>
