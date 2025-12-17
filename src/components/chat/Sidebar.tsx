@@ -175,24 +175,34 @@ export function Sidebar() {
             
             // Check online status for all other users
             if (otherUserIds.size > 0) {
-                const { data: profiles } = await supabase
-                    .from('profiles')
-                    .select('id, last_seen_at')
-                    .in('id', Array.from(otherUserIds))
-                
-                if (profiles) {
-                    const now = new Date()
-                    const onlineSet = new Set<string>()
-                    profiles.forEach(profile => {
-                        if (profile.last_seen_at) {
-                            const lastSeen = new Date(profile.last_seen_at)
-                            const diffMinutes = (now.getTime() - lastSeen.getTime()) / 60000
-                            if (diffMinutes < 2) {
-                                onlineSet.add(profile.id)
+                try {
+                    const userIdsArray = Array.from(otherUserIds)
+                    const { data: profiles, error } = await supabase
+                        .from('profiles')
+                        .select('id, last_seen_at')
+                        .in('id', userIdsArray)
+                    
+                    if (error) {
+                        console.error('Error fetching online status:', error)
+                        return
+                    }
+                    
+                    if (profiles) {
+                        const now = new Date()
+                        const onlineSet = new Set<string>()
+                        profiles.forEach(profile => {
+                            if (profile.last_seen_at) {
+                                const lastSeen = new Date(profile.last_seen_at)
+                                const diffMinutes = (now.getTime() - lastSeen.getTime()) / 60000
+                                if (diffMinutes < 2) {
+                                    onlineSet.add(profile.id)
+                                }
                             }
-                        }
-                    })
-                    setOnlineUsers(onlineSet)
+                        })
+                        setOnlineUsers(onlineSet)
+                    }
+                } catch (error) {
+                    console.error('Error checking online status:', error)
                 }
             }
         }
@@ -294,11 +304,25 @@ export function Sidebar() {
   useEffect(() => {
     if (!user) return
     
+    let lastUpdate = 0
+    const MIN_UPDATE_INTERVAL = 30000 // 30 seconds minimum between updates
+    
     const updateMyStatus = async () => {
-      await supabase
-        .from('profiles')
-        .update({ last_seen_at: new Date().toISOString() })
-        .eq('id', user.id)
+      const now = Date.now()
+      // Only update if at least 30 seconds have passed
+      if (now - lastUpdate < MIN_UPDATE_INTERVAL) {
+        return
+      }
+      lastUpdate = now
+      
+      try {
+        await supabase
+          .from('profiles')
+          .update({ last_seen_at: new Date().toISOString() })
+          .eq('id', user.id)
+      } catch (error) {
+        console.error('Error updating status:', error)
+      }
     }
     
     // Update immediately
@@ -307,13 +331,24 @@ export function Sidebar() {
     // Update every 30 seconds
     const interval = setInterval(updateMyStatus, 30000)
     
-    // Update on activity
-    const handleActivity = () => updateMyStatus()
+    // Debounced activity handler - only update after 30 seconds of inactivity
+    let activityTimeout: NodeJS.Timeout | null = null
+    const handleActivity = () => {
+      if (activityTimeout) {
+        clearTimeout(activityTimeout)
+      }
+      // Only update after 30 seconds of no activity
+      activityTimeout = setTimeout(updateMyStatus, 30000)
+    }
+    
     window.addEventListener('mousemove', handleActivity, { passive: true })
     window.addEventListener('keydown', handleActivity, { passive: true })
     
     return () => {
       clearInterval(interval)
+      if (activityTimeout) {
+        clearTimeout(activityTimeout)
+      }
       window.removeEventListener('mousemove', handleActivity)
       window.removeEventListener('keydown', handleActivity)
     }

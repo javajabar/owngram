@@ -55,11 +55,25 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   useEffect(() => {
     if (!user) return
     
+    let lastUpdate = 0
+    const MIN_UPDATE_INTERVAL = 30000 // 30 seconds minimum between updates
+    
     const updateMyStatus = async () => {
-      await supabase
-        .from('profiles')
-        .update({ last_seen_at: new Date().toISOString() })
-        .eq('id', user.id)
+      const now = Date.now()
+      // Only update if at least 30 seconds have passed
+      if (now - lastUpdate < MIN_UPDATE_INTERVAL) {
+        return
+      }
+      lastUpdate = now
+      
+      try {
+        await supabase
+          .from('profiles')
+          .update({ last_seen_at: new Date().toISOString() })
+          .eq('id', user.id)
+      } catch (error) {
+        console.error('Error updating status:', error)
+      }
     }
     
     // Update immediately
@@ -68,13 +82,24 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     // Update every 30 seconds
     const interval = setInterval(updateMyStatus, 30000)
     
-    // Update on activity
-    const handleActivity = () => updateMyStatus()
+    // Debounced activity handler - only update after 30 seconds of inactivity
+    let activityTimeout: NodeJS.Timeout | null = null
+    const handleActivity = () => {
+      if (activityTimeout) {
+        clearTimeout(activityTimeout)
+      }
+      // Only update after 30 seconds of no activity
+      activityTimeout = setTimeout(updateMyStatus, 30000)
+    }
+    
     window.addEventListener('mousemove', handleActivity, { passive: true })
     window.addEventListener('keydown', handleActivity, { passive: true })
     
     return () => {
       clearInterval(interval)
+      if (activityTimeout) {
+        clearTimeout(activityTimeout)
+      }
       window.removeEventListener('mousemove', handleActivity)
       window.removeEventListener('keydown', handleActivity)
     }
