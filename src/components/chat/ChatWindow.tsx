@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { Message, Profile, Chat } from '@/types'
 import { useAuthStore } from '@/store/useAuthStore'
 import { useCallStore } from '@/store/useCallStore'
-import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X, Search, Phone, Users, Camera, Share2, Copy, CheckCircle2 } from 'lucide-react'
+import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X, Search, Phone, Users, Camera, Share2, Copy, CheckCircle2, UserPlus } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { MessageBubble } from './MessageBubble'
 import { ImageViewer } from '@/components/ImageViewer'
@@ -55,6 +55,10 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [showForwardModal, setShowForwardModal] = useState(false)
   const [forwardingTargetChatId, setForwardingTargetChatId] = useState<string | null>(null)
   const [userChats, setUserChats] = useState<any[]>([])
+  const [showInviteModal, setShowInviteModal] = useState(false)
+  const [inviteSearchQuery, setInviteSearchQuery] = useState('')
+  const [availableForInvite, setAvailableForInvite] = useState<Profile[]>([])
+  const [isInviting, setIsInviting] = useState(false)
   const [editingMessage, setEditingMessage] = useState<Message | null>(null)
   const [showProfile, setShowProfile] = useState(false)
   const [isOnline, setIsOnline] = useState(false)
@@ -381,6 +385,58 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       console.error('Error updating reaction:', err)
     }
   }
+
+  const handleInviteUser = async (userId: string) => {
+    if (!chatId) return
+    setIsInviting(true)
+    try {
+      const { error } = await supabase
+        .from('chat_members')
+        .insert({ chat_id: chatId, user_id: userId })
+      
+      if (error) throw error
+      
+      // Update local members list
+      const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).single()
+      if (profile) {
+        setGroupMembers(prev => [...prev, profile as Profile])
+      }
+      
+      setShowInviteModal(false)
+      setInviteSearchQuery('')
+    } catch (err: any) {
+      console.error('Error inviting user:', err)
+      alert('Пользователь уже в группе или произошла ошибка')
+    } finally {
+      setIsInviting(false)
+    }
+  }
+
+  const fetchUsersForInvite = async (query: string) => {
+    if (!query.trim() || !user) return
+    const cleanQuery = query.replace('@', '').trim()
+    
+    // Get current members to exclude them
+    const memberIds = groupMembers.map(m => m.id)
+    
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .neq('id', user.id)
+      .not('id', 'in', `(${memberIds.join(',')})`)
+      .ilike('username', `%${cleanQuery}%`)
+      .limit(10)
+    
+    if (data) setAvailableForInvite(data as Profile[])
+  }
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (inviteSearchQuery) fetchUsersForInvite(inviteSearchQuery)
+      else setAvailableForInvite([])
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [inviteSearchQuery])
 
   useEffect(() => {
     if (showForwardModal) fetchUserChats()
@@ -1706,7 +1762,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                 <p className="text-blue-500 dark:text-blue-400 text-sm font-medium">@{otherUser.username.replace(/^@+/, '')}</p>
                             )}
                             {chat?.type === 'group' && (
-                                <p className="text-gray-500 text-sm font-medium">{groupMembers.length} участников</p>
+                                <div className="flex items-center justify-center gap-2">
+                                    <p className="text-gray-500 text-sm font-medium">{groupMembers.length} участников</p>
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); setShowInviteModal(true) }}
+                                        className="p-1.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-blue-500 transition-colors"
+                                        title="Пригласить"
+                                    >
+                                        <UserPlus className="w-4 h-4" />
+                                    </button>
+                                </div>
                             )}
                         </div>
                         
@@ -1907,6 +1972,61 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                       <div className="font-bold text-gray-900 dark:text-white truncate">{chat.displayName}</div>
                       <div className="text-xs text-gray-500 dark:text-gray-400">{chat.type === 'group' ? 'Группа' : 'Личный чат'}</div>
                     </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invite Modal */}
+      {showInviteModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowInviteModal(false)}>
+          <div className="bg-white dark:bg-[#17212B] rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Пригласить</h3>
+              <button onClick={() => setShowInviteModal(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+            
+            <div className="p-4">
+              <div className="relative">
+                <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                <input 
+                  type="text" 
+                  placeholder="Поиск по @username..." 
+                  value={inviteSearchQuery}
+                  onChange={(e) => setInviteSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-gray-100 dark:bg-[#242F3D] border border-transparent focus:border-blue-500 rounded-xl text-sm outline-none transition-all text-gray-900 dark:text-white"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {inviteSearchQuery && availableForInvite.length === 0 ? (
+                <div className="text-center py-10 text-gray-500">Пользователи не найдены</div>
+              ) : (
+                availableForInvite.map(u => (
+                  <div 
+                    key={u.id}
+                    onClick={() => handleInviteUser(u.id)}
+                    className="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-[#242F3D] rounded-2xl cursor-pointer transition-colors"
+                  >
+                    <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center shrink-0">
+                      {u.avatar_url ? (
+                        <img src={u.avatar_url} className="w-full h-full object-cover" alt="U" />
+                      ) : (
+                        <span className="text-gray-500 font-bold">{(u.username?.[0] || 'U').toUpperCase()}</span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-bold text-gray-900 dark:text-white truncate">{u.full_name || u.username}</div>
+                      <div className="text-xs text-gray-500 dark:text-gray-400">@{u.username}</div>
+                    </div>
+                    <UserPlus className="w-5 h-5 text-blue-500" />
                   </div>
                 ))
               )}

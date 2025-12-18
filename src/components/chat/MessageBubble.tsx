@@ -273,13 +273,29 @@ export function MessageBubble({
         {/* Forwarded Info */}
         {message.forwarded_from_id && (
           <div className={cn(
-            "flex items-center gap-1.5 mb-1 opacity-80",
+            "flex items-center gap-1.5 mb-1 opacity-90",
             isMe ? "text-blue-100" : "text-blue-500"
           )}>
-            <Share2 className="w-3 h-3" />
-            <span className="text-[10px] font-medium italic">
-              Переслано от {message.forwarded_from?.full_name || 'пользователя'}
-            </span>
+            <Reply className="w-3 h-3 rotate-180 scale-y-[-1]" />
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] font-medium italic whitespace-nowrap">
+                Переслано от
+              </span>
+              <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded-full">
+                <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0 border border-white/20">
+                  {message.forwarded_from?.avatar_url ? (
+                    <img src={message.forwarded_from.avatar_url} className="w-full h-full object-cover" alt="" />
+                  ) : (
+                    <div className="w-full h-full bg-blue-500 flex items-center justify-center text-[6px] text-white font-bold">
+                      {(message.forwarded_from?.full_name?.[0] || 'U').toUpperCase()}
+                    </div>
+                  )}
+                </div>
+                <span className="text-[10px] font-bold truncate max-w-[100px]">
+                  {message.forwarded_from?.full_name || 'Пользователя'}
+                </span>
+              </div>
+            </div>
           </div>
         )}
 
@@ -577,7 +593,7 @@ export function MessageBubble({
                 key={emoji}
                 onClick={(e) => { e.stopPropagation(); onReaction?.(message.id, emoji) }}
                 className={cn(
-                  "flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] transition-all active:scale-90",
+                  "flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] transition-all active:scale-90 animate-in zoom-in duration-300 ease-out-back",
                   userIds.includes(user?.id || '') 
                     ? "bg-blue-500/20 border border-blue-500/30 text-blue-600 dark:text-blue-400" 
                     : "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400"
