@@ -414,6 +414,8 @@ export function Sidebar() {
   useEffect(() => {
     if (!user) return
     
+    const currentUserId = user.id // Capture user ID to avoid null checks
+    
     // Ensure "Избранное" chat exists (only once)
     if (!savedMessagesChecked) {
       ensureSavedMessagesChat().then(() => {
@@ -466,7 +468,7 @@ export function Sidebar() {
     supabase
         .from('chat_members')
         .select('chat_id')
-        .eq('user_id', user.id)
+        .eq('user_id', currentUserId)
         .then(({ data }) => {
             if (data) {
                 setUserChatIds(data.map(m => m.chat_id))
@@ -475,14 +477,14 @@ export function Sidebar() {
     
     // Global listener for incoming calls (works from anywhere on the site)
     const globalCallChannel = supabase
-      .channel(`global-calls-${user.id}`)
+      .channel(`global-calls-${currentUserId}`)
       .on(
         'postgres_changes',
         {
           event: 'INSERT',
           schema: 'public',
           table: 'call_signals',
-          filter: `to_user_id=eq.${user.id}`,
+          filter: `to_user_id=eq.${currentUserId}`,
         },
         async (payload) => {
           const signal = payload.new as any
@@ -491,7 +493,7 @@ export function Sidebar() {
             from: signal.from_user_id,
             to: signal.to_user_id,
             chatId: signal.chat_id,
-            currentUser: user.id
+            currentUser: currentUserId
           })
           
           // Only handle call-request signals
@@ -536,7 +538,7 @@ export function Sidebar() {
     }
     
     const channel = supabase.channel('sidebar_chats')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_members', filter: `user_id=eq.${user.id}` }, () => {
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_members', filter: `user_id=eq.${currentUserId}` }, () => {
             fetchChats(false) // Don't show loading
         })
         .on('postgres_changes', { 
