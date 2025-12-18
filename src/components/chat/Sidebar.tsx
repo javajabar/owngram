@@ -478,11 +478,6 @@ export function Sidebar() {
     // Note: Global call listener is now in CallListenerProvider (root level)
     // This ensures it works regardless of UI component lifecycle
     
-    return () => {
-      console.log('🧹 Cleaning up global call listener')
-      supabase.removeChannel(globalCallChannel)
-    }
-    
     const channel = supabase.channel('sidebar_chats')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_members', filter: `user_id=eq.${currentUserId}` }, () => {
             fetchChats(false) // Don't show loading
