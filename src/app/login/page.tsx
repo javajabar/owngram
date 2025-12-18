@@ -520,19 +520,22 @@ export default function LoginPage() {
                   <label htmlFor="username" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                     Имя пользователя <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    id="username"
-                    type="text"
-                    required
-                    value={username}
-                    onChange={(e) => {
-                      // Only allow English letters, numbers, underscore
-                      const value = e.target.value.replace(/[^a-zA-Z0-9_]/g, '')
-                      setUsername(value)
-                    }}
-                    className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-                    placeholder="username"
-                  />
+                  <div className="relative">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 font-medium">@</span>
+                    <input
+                      id="username"
+                      type="text"
+                      required
+                      value={username}
+                      onChange={(e) => {
+                        // Only allow English letters, numbers, underscore
+                        const value = e.target.value.replace(/[^a-zA-Z0-9_]/g, '')
+                        setUsername(value)
+                      }}
+                      className="w-full pl-9 pr-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                      placeholder="username"
+                    />
+                  </div>
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Только английские буквы, цифры и подчеркивание
                   </p>

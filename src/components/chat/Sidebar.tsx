@@ -550,14 +550,49 @@ export function Sidebar() {
       }
   }
 
-  const fetchAvailableUsers = async () => {
+  const fetchAvailableUsers = async (query?: string) => {
     if (!user) return
     try {
-      const { data, error } = await supabase.from('profiles').select('*').neq('id', user.id).limit(50)
-      if (error) throw error
-      setAvailableUsers(data || [])
+      // If we have a query, search by username (with @ support)
+      if (query && query.trim()) {
+        const cleanQuery = query.replace('@', '').trim()
+        if (cleanQuery) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .neq('id', user.id)
+            .ilike('username', `%${cleanQuery}%`)
+            .limit(20)
+          
+          if (error) throw error
+          setAvailableUsers(data || [])
+          return
+        }
+      }
+
+      // Default: only users we have chats with
+      const { data: chatMembers, error: membersError } = await supabase
+        .from('chat_members')
+        .select('user_id, profiles(*)')
+        .in('chat_id', userChatIds)
+        .neq('user_id', user.id)
+      
+      if (membersError) throw membersError
+      
+      // Filter out duplicate users from different chats
+      const uniqueUsers: Profile[] = []
+      const seenIds = new Set()
+      
+      chatMembers?.forEach(m => {
+        if (m.profiles && !seenIds.has(m.user_id)) {
+          seenIds.add(m.user_id)
+          uniqueUsers.push(m.profiles as unknown as Profile)
+        }
+      })
+      
+      setAvailableUsers(uniqueUsers)
     } catch (error) {
-      console.error('Error fetching users:', error)
+      console.error('Error fetching available users:', error)
     }
   }
 
@@ -719,8 +754,33 @@ export function Sidebar() {
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between"><h2 className="text-xl font-bold text-gray-900 dark:text-white">Создать группу</h2><button onClick={() => setShowCreateGroup(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"><X className="w-5 h-5 text-gray-500" /></button></div>
             <div className="p-4 flex-1 overflow-y-auto space-y-4">
-              <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Название группы</label><input type="text" value={groupName} onChange={(e) => setGroupName(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Введите название группы" /></div>
-              <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Участники ({selectedUsers.length})</label><div className="space-y-2 max-h-60 overflow-y-auto">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Название группы</label>
+                <input 
+                  type="text" 
+                  value={groupName} 
+                  onChange={(e) => setGroupName(e.target.value)} 
+                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none" 
+                  placeholder="Введите название группы" 
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Найти участников</label>
+                <div className="relative">
+                  <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                  <input 
+                    type="text" 
+                    placeholder="Поиск по @username..." 
+                    onChange={(e) => fetchAvailableUsers(e.target.value)}
+                    className="w-full pl-9 pr-4 py-2 bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Участники ({selectedUsers.length})</label>
+                <div className="space-y-2 max-h-60 overflow-y-auto">
                   {availableUsers.map((userProfile) => (
                     <div key={userProfile.id} onClick={() => { if (selectedUsers.includes(userProfile.id)) { setSelectedUsers(selectedUsers.filter(id => id !== userProfile.id)) } else { setSelectedUsers([...selectedUsers, userProfile.id]) } }} className={`p-3 rounded-lg cursor-pointer transition-colors flex items-center gap-3 ${selectedUsers.includes(userProfile.id) ? 'bg-blue-100 dark:bg-blue-900/30 border-2 border-blue-500' : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
                       <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">{userProfile.avatar_url ? <img src={userProfile.avatar_url} className="w-full h-full object-cover" alt="U" /> : <div className="w-full h-full flex items-center justify-center text-sm font-bold text-gray-500">{(userProfile.username?.[0] || 'U').toUpperCase()}</div>}</div>

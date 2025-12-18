@@ -58,6 +58,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [showSearch, setShowSearch] = useState(false)
   const [viewingImage, setViewingImage] = useState<string | null>(null)
   const [viewingAvatar, setViewingAvatar] = useState<string | null>(null)
+  const [isBlockedByMe, setIsBlockedByMe] = useState(false)
+  const [isBlockingMe, setIsBlockingMe] = useState(false)
   
   // Pagination State
   const [hasMore, setHasMore] = useState(true)
@@ -87,6 +89,55 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const { incomingCall: globalIncomingCall, clearIncomingCall } = useCallStore()
   const router = useRouter()
   
+  // Check block status
+  const checkBlockStatus = useCallback(async () => {
+    if (!user || !otherUser || chat?.type !== 'dm') {
+      setIsBlockedByMe(false)
+      setIsBlockingMe(false)
+      return
+    }
+
+    try {
+      const { data: blockedByMe } = await supabase
+        .from('blocked_users')
+        .select('*')
+        .eq('blocker_id', user.id)
+        .eq('blocked_id', otherUser.id)
+        .maybeSingle()
+      
+      const { data: blockingMe } = await supabase
+        .from('blocked_users')
+        .select('*')
+        .eq('blocker_id', otherUser.id)
+        .eq('blocked_id', user.id)
+        .maybeSingle()
+
+      setIsBlockedByMe(!!blockedByMe)
+      setIsBlockingMe(!!blockingMe)
+    } catch (error) {
+      console.error('Error checking block status:', error)
+    }
+  }, [user?.id, otherUser?.id, chat?.type])
+
+  useEffect(() => {
+    checkBlockStatus()
+
+    // Subscribe to block status changes
+    const blockChannel = supabase.channel(`blocks:${chatId}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'blocked_users'
+      }, () => {
+        checkBlockStatus()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(blockChannel)
+    }
+  }, [checkBlockStatus, chatId])
+
   // Update my online status periodically (removed - handled globally in Sidebar)
   // This prevents duplicate updates
   
@@ -1452,31 +1503,40 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                 onClick={async () => {
                                     if (!user || !otherUser) return
                                     try {
-                                        const { error } = await supabase
-                                            .from('blocked_users')
-                                            .upsert({
-                                                blocker_id: user.id,
-                                                blocked_id: otherUser.id,
-                                                created_at: new Date().toISOString()
-                                            }, {
-                                                onConflict: 'blocker_id,blocked_id'
-                                            })
-                                        
-                                        if (error) {
-                                            console.error('Error blocking user:', error)
-                                            alert('Ошибка при блокировке пользователя')
+                                        if (isBlockedByMe) {
+                                            // Unblock
+                                            const { error } = await supabase
+                                                .from('blocked_users')
+                                                .delete()
+                                                .eq('blocker_id', user.id)
+                                                .eq('blocked_id', otherUser.id)
+                                            
+                                            if (error) throw error
+                                            setIsBlockedByMe(false)
                                         } else {
-                                            alert('Пользователь заблокирован')
+                                            // Block
+                                            const { error } = await supabase
+                                                .from('blocked_users')
+                                                .upsert({
+                                                    blocker_id: user.id,
+                                                    blocked_id: otherUser.id,
+                                                    created_at: new Date().toISOString()
+                                                }, {
+                                                    onConflict: 'blocker_id,blocked_id'
+                                                })
+                                            
+                                            if (error) throw error
+                                            setIsBlockedByMe(true)
                                             setShowProfile(false)
                                         }
                                     } catch (error) {
-                                        console.error('Error:', error)
-                                        alert('Ошибка при блокировке пользователя')
+                                        console.error('Error blocking/unblocking user:', error)
+                                        alert('Ошибка при выполнении операции')
                                     }
                                 }}
-                                className="w-full py-3 bg-red-500 hover:bg-red-600 text-white rounded-2xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg active:scale-95"
+                                className={`w-full py-3 ${isBlockedByMe ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white' : 'bg-red-500 hover:bg-red-600 text-white'} rounded-2xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg active:scale-95`}
                             >
-                                Заблокировать
+                                {isBlockedByMe ? 'Разблокировать' : 'Заблокировать'}
                             </button>
                         )}
                         
@@ -1529,105 +1589,111 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
       {/* Input */}
       <div className="p-3 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 shrink-0">
-        <form onSubmit={sendMessage} className="flex items-center gap-2 max-w-4xl mx-auto">
-            <input
-                type="file"
-                ref={fileInputRef}
-                onChange={(e) => {
-                    if (e.target.files) {
-                        handleFileUpload(e.target.files)
-                        e.target.value = '' // Reset input
-                    }
-                }}
-                multiple
-                accept="image/*,.pdf,.doc,.docx,.txt"
-                className="hidden"
-            />
-            <button 
-                type="button" 
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-                className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors disabled:opacity-50"
-            >
-                {isUploading ? (
-                    <div className="w-5 h-5 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />
-                ) : (
-                    <Paperclip className="w-5 h-5" />
-                )}
-            </button>
-            <input
-                type="text"
-                value={newMessage}
-                onChange={e => {
-                    setNewMessage(e.target.value)
-                }}
-                onInput={(e) => {
-                    // Send typing indicator when user types
-                    const value = (e.target as HTMLInputElement).value
-                    if (value.trim() && chatId && user) {
-                        // Use the existing channel to send typing event
-                        const typingChannel = supabase.channel(`chat:${chatId}`)
-                        typingChannel.send({
-                            type: 'broadcast',
-                            event: 'typing',
-                            payload: { user_id: user.id, is_typing: true }
-                        })
-                        
-                        // Clear previous timeout
-                        const timeoutKey = `typingTimeout_${chatId}`
-                        if ((window as any)[timeoutKey]) {
-                            clearTimeout((window as any)[timeoutKey])
-                        }
-                        
-                        // Stop typing after 2 seconds of no input
-                        ;(window as any)[timeoutKey] = setTimeout(() => {
-                            typingChannel.send({
-                                type: 'broadcast',
-                                event: 'typing',
-                                payload: { user_id: user.id, is_typing: false }
-                            })
-                        }, 2000)
-                    }
-                }}
-                onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault()
-                        sendMessage(e)
-                        setIsTyping(false)
-                    }
-                }}
-                placeholder={editingMessage ? "Редактировать сообщение..." : replyingTo ? "Ответить..." : "Message..."}
-                className="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-800 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white transition-all"
-            />
-            {newMessage.trim() ? (
-                <button type="submit" className="p-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-all active:scale-95 shadow-md">
-                    {editingMessage ? <span className="text-sm">✓</span> : <Send className="w-5 h-5" />}
-                </button>
-            ) : (
-                <div className="relative flex items-center">
-                    {isRecording ? (
-                        <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-full animate-pulse">
-                            <span className="text-xs text-red-500 font-bold">Recording...</span>
-                            <button 
-                                type="button" 
-                                onClick={stopRecording}
-                                className="p-3 bg-red-500 hover:bg-red-600 text-white rounded-full transition-all active:scale-95 shadow-md"
-                            >
-                                {isUploading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Square className="w-4 h-4 fill-current" />}
-                            </button>
-                        </div>
-            ) : (
-                <button 
-                    type="button" 
-                            onClick={startRecording}
-                    className="p-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full transition-all active:scale-95"
-                >
-                    <Mic className="w-5 h-5" />
-                </button>
-                    )}
-                </div>
-            )}
-        </form>
+        {(isBlockedByMe || isBlockingMe) ? (
+          <div className="flex items-center justify-center p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl text-gray-500 dark:text-gray-400 text-sm font-medium">
+            {isBlockedByMe ? 'Вы заблокировали этого пользователя' : 'Вас заблокировали'}
+          </div>
+        ) : (
+          <form onSubmit={sendMessage} className="flex items-center gap-2 max-w-4xl mx-auto">
+              <input
+                  type="file"
+                  ref={fileInputRef}
+                  onChange={(e) => {
+                      if (e.target.files) {
+                          handleFileUpload(e.target.files)
+                          e.target.value = '' // Reset input
+                      }
+                  }}
+                  multiple
+                  accept="image/*,.pdf,.doc,.docx,.txt"
+                  className="hidden"
+              />
+              <button 
+                  type="button" 
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className="p-2 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors disabled:opacity-50"
+              >
+                  {isUploading ? (
+                      <div className="w-5 h-5 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                      <Paperclip className="w-5 h-5" />
+                  )}
+              </button>
+              <input
+                  type="text"
+                  value={newMessage}
+                  onChange={e => {
+                      setNewMessage(e.target.value)
+                  }}
+                  onInput={(e) => {
+                      // Send typing indicator when user types
+                      const value = (e.target as HTMLInputElement).value
+                      if (value.trim() && chatId && user) {
+                          // Use the existing channel to send typing event
+                          const typingChannel = supabase.channel(`chat:${chatId}`)
+                          typingChannel.send({
+                              type: 'broadcast',
+                              event: 'typing',
+                              payload: { user_id: user.id, is_typing: true }
+                          })
+                          
+                          // Clear previous timeout
+                          const timeoutKey = `typingTimeout_${chatId}`
+                          if ((window as any)[timeoutKey]) {
+                              clearTimeout((window as any)[timeoutKey])
+                          }
+                          
+                          // Stop typing after 2 seconds of no input
+                          ;(window as any)[timeoutKey] = setTimeout(() => {
+                              typingChannel.send({
+                                  type: 'broadcast',
+                                  event: 'typing',
+                                  payload: { user_id: user.id, is_typing: false }
+                              })
+                          }, 2000)
+                      }
+                  }}
+                  onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                          e.preventDefault()
+                          sendMessage(e)
+                          setIsTyping(false)
+                      }
+                  }}
+                  placeholder={editingMessage ? "Редактировать сообщение..." : replyingTo ? "Ответить..." : "Message..."}
+                  className="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-800 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white transition-all"
+              />
+              {newMessage.trim() ? (
+                  <button type="submit" className="p-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-all active:scale-95 shadow-md">
+                      {editingMessage ? <span className="text-sm">✓</span> : <Send className="w-5 h-5" />}
+                  </button>
+              ) : (
+                  <div className="relative flex items-center">
+                      {isRecording ? (
+                          <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-full animate-pulse">
+                              <span className="text-xs text-red-500 font-bold">Recording...</span>
+                              <button 
+                                  type="button" 
+                                  onClick={stopRecording}
+                                  className="p-3 bg-red-500 hover:bg-red-600 text-white rounded-full transition-all active:scale-95 shadow-md"
+                              >
+                                  {isUploading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Square className="w-4 h-4 fill-current" />}
+                              </button>
+                          </div>
+              ) : (
+                  <button 
+                      type="button" 
+                              onClick={startRecording}
+                      className="p-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full transition-all active:scale-95"
+                  >
+                      <Mic className="w-5 h-5" />
+                  </button>
+                      )}
+                  </div>
+              )}
+          </form>
+        )}
       </div>
     </div>
   )

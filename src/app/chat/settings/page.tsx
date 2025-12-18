@@ -37,14 +37,16 @@ export default function SettingsPage() {
     } else if (selectedTheme === 'dark') {
       html.classList.add('dark')
       html.setAttribute('data-theme', 'dark')
-    } else {
+    } else if (selectedTheme === 'dark-blue') {
+      // Both dark (for base dark styles) and dark-blue (for specific overrides)
+      html.classList.add('dark')
       html.classList.add('dark-blue')
       html.setAttribute('data-theme', 'dark-blue')
     }
     
     localStorage.setItem('theme', selectedTheme)
     
-    // Force re-render
+    // Force re-render for components that might rely on media queries or classes
     window.dispatchEvent(new Event('resize'))
   }
 
@@ -104,18 +106,19 @@ export default function SettingsPage() {
     applyTheme(newTheme)
   }
 
-  const handleSave = async () => {
+  const handleSave = async (newUsername?: string) => {
     if (!user) return
 
+    const targetUsername = newUsername !== undefined ? newUsername : username
+    
     setSaving(true)
     try {
       // Validate username
-      if (username && !/^[a-zA-Z0-9_]+$/.test(username)) {
-        alert('Имя пользователя может содержать только английские буквы, цифры и подчеркивание')
+      if (targetUsername && !/^[a-zA-Z0-9_]+$/.test(targetUsername)) {
         return
       }
 
-      const cleanUsername = username.replace(/^@+/, '')
+      const cleanUsername = targetUsername.replace(/^@+/, '')
 
       // Update profile
       const { error: profileError } = await supabase
@@ -127,11 +130,9 @@ export default function SettingsPage() {
         .eq('id', user.id)
 
       if (profileError) throw profileError
-
-      alert('Настройки сохранены')
+      
     } catch (error: any) {
       console.error('Error saving settings:', error)
-      alert(`Ошибка при сохранении: ${error.message || 'Неизвестная ошибка'}`)
     } finally {
       setSaving(false)
     }
@@ -192,15 +193,16 @@ export default function SettingsPage() {
             Имя пользователя
           </label>
           <div className="relative">
-            <span className="absolute left-4 top-2.5 text-gray-400 dark:text-gray-500 text-sm">@</span>
+            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 font-medium">@</span>
             <input
               type="text"
               value={username}
+              onBlur={() => handleSave()}
               onChange={(e) => {
                 const value = e.target.value.replace(/[^a-zA-Z0-9_]/g, '')
                 setUsername(value)
               }}
-              className="w-full pl-7 pr-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+              className="w-full pl-9 pr-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
               placeholder="username"
             />
           </div>
@@ -308,15 +310,14 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Save Button */}
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="w-full py-3 bg-blue-500 hover:bg-blue-600 text-white rounded-lg font-medium transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
-        >
-          <Save className="w-5 h-5" />
-          {saving ? 'Сохранение...' : 'Сохранить'}
-        </button>
+        </div>
+
+        {saving && (
+          <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-4 py-2 rounded-lg shadow-lg text-sm text-gray-500 flex items-center gap-2">
+            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+            Сохранение...
+          </div>
+        )}
       </div>
     </div>
   )
