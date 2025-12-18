@@ -743,8 +743,25 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
 
     fetchInitialMessages()
 
+    // Realtime - remove existing channel first to prevent duplicates
+    const channelName = `chat:${chatId}`
+    try {
+      const existingChannel = supabase.getChannels().find(ch => ch.topic === channelName)
+      if (existingChannel) {
+        console.log('🧹 Removing existing chat channel')
+        supabase.removeChannel(existingChannel)
+      }
+    } catch (e) {
+      console.warn('⚠️ Error checking for existing channel:', e)
+    }
+
     // Realtime
-    const channel = supabase.channel(`chat:${chatId}`)
+    const channel = supabase.channel(channelName, {
+      config: {
+        broadcast: { self: true },
+        presence: { key: user?.id || '' }
+      }
+    })
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
@@ -905,10 +922,15 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
               }
           }
       })
-      .subscribe((status) => {
+      .subscribe((status, err) => {
           console.log('Channel subscription status:', status)
           if (status === 'SUBSCRIBED') {
-              console.log('Successfully subscribed to chat:', chatId)
+              console.log('✅ Successfully subscribed to chat:', chatId)
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+              console.warn(`⚠️ Chat channel status: ${status}`, err || '')
+              if (status === 'CHANNEL_ERROR' && err) {
+                  console.error('❌ Error details:', err)
+              }
           }
       })
 
@@ -953,7 +975,11 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
     
     // Cleanup on unmount - trigger sidebar refresh when leaving chat
     return () => { 
-        supabase.removeChannel(channel)
+        try {
+          supabase.removeChannel(channel)
+        } catch (e) {
+          console.warn('⚠️ Error removing chat channel:', e)
+        }
         // When leaving chat, trigger sidebar refresh to update unread counts
         if (typeof window !== 'undefined') {
             window.dispatchEvent(new CustomEvent('chatLeft', { detail: { chatId } }))
@@ -1715,9 +1741,16 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
         setReplyingTo(null)
       }
       // Keep focus on input after editing
-      setTimeout(() => {
-        messageInputRef.current?.focus()
-      }, 50)
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          if (messageInputRef.current) {
+            messageInputRef.current.focus()
+            if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+              messageInputRef.current.click()
+            }
+          }
+        }, 100)
+      })
       return
     }
 
@@ -1746,9 +1779,18 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
     setTimeout(scrollToBottom, 50)
     
     // Keep keyboard open on mobile by refocusing input
-    setTimeout(() => {
-      messageInputRef.current?.focus()
-    }, 100)
+    // Use requestAnimationFrame for better mobile support
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        if (messageInputRef.current) {
+          messageInputRef.current.focus()
+          // Force focus on mobile by clicking
+          if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+            messageInputRef.current.click()
+          }
+        }
+      }, 150)
+    })
 
     try {
       const { error, data } = await supabase.from('messages').insert({
@@ -2572,9 +2614,16 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
                         sendMessage(e)
                         setIsTyping(false)
                         // Keep focus on mobile
-                        setTimeout(() => {
-                            messageInputRef.current?.focus()
-                        }, 50)
+                        requestAnimationFrame(() => {
+                          setTimeout(() => {
+                            if (messageInputRef.current) {
+                              messageInputRef.current.focus()
+                              if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+                                messageInputRef.current.click()
+                              }
+                            }
+                          }, 100)
+                        })
                     }
                 }}
                 ref={messageInputRef}
@@ -2588,9 +2637,16 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
                         e.preventDefault()
                         sendMessage(e)
                         // Keep focus on input to prevent keyboard from closing
-                        setTimeout(() => {
-                            messageInputRef.current?.focus()
-                        }, 50)
+                        requestAnimationFrame(() => {
+                          setTimeout(() => {
+                            if (messageInputRef.current) {
+                              messageInputRef.current.focus()
+                              if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+                                messageInputRef.current.click()
+                              }
+                            }
+                          }, 100)
+                        })
                     }}
                     className="p-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-all active:scale-95 shadow-md"
                 >

@@ -36,15 +36,51 @@ export class WebRTCHandler {
 
   async initialize() {
     try {
-      // Get user media with explicit audio constraints
-      this.localStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+      // Detect mobile device
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      
+      // Get user media with mobile-optimized constraints
+      const constraints: MediaStreamConstraints = {
+        video: {
+          width: { ideal: isMobile ? 640 : 1280 },
+          height: { ideal: isMobile ? 480 : 720 },
+          facingMode: isMobile ? 'user' : undefined,
+        },
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
+          // Mobile-specific audio settings
+          ...(isMobile && {
+            sampleRate: 48000,
+            channelCount: 1,
+          }),
         },
-      })
+      }
+      
+      console.log('🎥 Requesting media with constraints:', constraints)
+      
+      try {
+        this.localStream = await navigator.mediaDevices.getUserMedia(constraints)
+      } catch (error: any) {
+        console.error('❌ Error getting user media:', error)
+        // On mobile, try with audio-only first if video fails
+        if (isMobile && error.name === 'NotReadableError' || error.name === 'OverconstrainedError') {
+          console.log('🔄 Retrying with audio-only constraints on mobile...')
+          try {
+            this.localStream = await navigator.mediaDevices.getUserMedia({
+              audio: constraints.audio,
+              video: false,
+            })
+            console.log('✅ Got audio-only stream on mobile')
+          } catch (audioError) {
+            console.error('❌ Audio-only also failed:', audioError)
+            throw audioError
+          }
+        } else {
+          throw error
+        }
+      }
       
       // Log all tracks
       const audioTracks = this.localStream.getAudioTracks()
@@ -57,6 +93,23 @@ export class WebRTCHandler {
         track.enabled = true
         console.log('🎤 Audio track enabled:', track.label, track.enabled, track.readyState)
       })
+      
+      // On mobile, ensure video tracks are properly configured
+      if (isMobile && videoTracks.length > 0) {
+        videoTracks.forEach(track => {
+          track.enabled = true
+          // Set optimal settings for mobile
+          if ('applyConstraints' in track) {
+            track.applyConstraints({
+              width: { ideal: 640 },
+              height: { ideal: 480 },
+              frameRate: { ideal: 15 },
+            }).catch(err => {
+              console.warn('⚠️ Could not apply video constraints:', err)
+            })
+          }
+        })
+      }
 
       // Subscribe to signals and presence
       this.subscribeToSignals()
@@ -76,6 +129,9 @@ export class WebRTCHandler {
 
     console.log('📡 Creating peer connection for:', otherUserId, 'isInitiator:', isInitiator)
 
+    // Detect mobile device for optimized configuration
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+    
     const pc = new RTCPeerConnection({
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' },
@@ -87,6 +143,10 @@ export class WebRTCHandler {
         { urls: 'stun:stun.voiparound.com' },
         { urls: 'stun:stun.voipbuster.com' },
       ],
+      // Mobile-optimized configuration
+      iceCandidatePoolSize: isMobile ? 10 : 0,
+      bundlePolicy: 'max-bundle',
+      rtcpMuxPolicy: 'require',
     })
 
     // Add local stream tracks
@@ -139,10 +199,25 @@ export class WebRTCHandler {
 
     // Create offer if initiator
     if (isInitiator) {
+      // Detect mobile for delay timing
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+      
       setTimeout(async () => {
         try {
-          const offer = await pc.createOffer()
+          // Mobile-optimized offer options
+          const offerOptions: RTCOfferOptions = {
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: true,
+            iceRestart: false,
+            ...(isMobile && {
+              voiceActivityDetection: true,
+            }),
+          }
+          
+          console.log('📤 Creating offer with options:', offerOptions)
+          const offer = await pc.createOffer(offerOptions)
           await pc.setLocalDescription(offer)
+          console.log('✅ Offer created and set as local description')
           this.sendSignal({
             type: 'offer',
             from: this.userId,
@@ -151,9 +226,12 @@ export class WebRTCHandler {
             timestamp: new Date().toISOString(),
           })
         } catch (error) {
-          console.error('Error creating offer:', error)
+          console.error('❌ Error creating offer:', error)
+          // Try to recover by removing peer and notifying
+          this.removePeer(otherUserId)
+          this.onCallEnd()
         }
-      }, 500) // Small delay to ensure tracks are added
+      }, isMobile ? 1000 : 500) // Longer delay on mobile to ensure tracks are ready
     }
 
     return pc
@@ -196,8 +274,16 @@ export class WebRTCHandler {
             }
             this.iceCandidateQueues.delete(fromUserId)
 
-            const answer = await pcOffer.createAnswer()
+            // Mobile-optimized answer options
+            const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent)
+            const answerOptions: RTCAnswerOptions = isMobile ? {
+              voiceActivityDetection: true,
+            } : {}
+            
+            console.log('📥 Creating answer with options:', answerOptions)
+            const answer = await pcOffer.createAnswer(answerOptions)
             await pcOffer.setLocalDescription(answer)
+            console.log('✅ Answer created and set as local description')
             this.sendSignal({
               type: 'answer',
               from: this.userId,

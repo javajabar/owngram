@@ -49,10 +49,6 @@ html {
   /* Prevent pull-to-refresh and overscroll bounce on mobile */
   overscroll-behavior-y: none;
   -webkit-overflow-scrolling: touch;
-  /* Prevent elastic scrolling on iOS */
-  position: fixed;
-  left: 0;
-  right: 0;
 }
 
 body {

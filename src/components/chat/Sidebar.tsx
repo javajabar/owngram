@@ -543,7 +543,18 @@ export function Sidebar() {
                 soundManager.playMessageReceived()
                 if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
                     const senderName = (msgToUse.sender as any)?.full_name || 'Собеседник'
-                    new Notification(senderName, { body: msgToUse.content, tag: msgToUse.chat_id })
+                    const senderAvatar = (msgToUse.sender as any)?.avatar_url
+                    
+                    const notificationOptions: NotificationOptions = {
+                        body: msgToUse.content,
+                        tag: msgToUse.chat_id,
+                        icon: senderAvatar || undefined,
+                        badge: senderAvatar || undefined,
+                        requireInteraction: false,
+                        silent: false
+                    }
+                    
+                    new Notification(senderName, notificationOptions)
                 }
             }
             

@@ -82,8 +82,12 @@ export function CallModal({
           audioEl.srcObject = stream
           audioEl.volume = 1.0
           audioEl.muted = false
+          // Prevent play() interruption errors
           audioEl.play().catch(err => {
-            console.log(`⚠️ Audio autoplay blocked for user ${userId}:`, err)
+            // Ignore "play() request was interrupted" errors
+            if (err.name !== 'AbortError' && err.name !== 'NotAllowedError') {
+              console.log(`⚠️ Audio autoplay blocked for user ${userId}:`, err)
+            }
           })
         }
       })
@@ -259,7 +263,18 @@ function VideoElement({ stream }: { stream: MediaStream }) {
   useEffect(() => {
     if (videoRef.current) {
       videoRef.current.srcObject = stream
-      videoRef.current.play().catch(console.error)
+      // Prevent play() interruption errors
+      if (videoRef.current) {
+        const playPromise = videoRef.current.play()
+        if (playPromise !== undefined) {
+          playPromise.catch(err => {
+            // Ignore "play() request was interrupted" errors
+            if (err.name !== 'AbortError' && err.name !== 'NotAllowedError') {
+              console.error('Video play error:', err)
+            }
+          })
+        }
+      }
     }
   }, [stream])
 
