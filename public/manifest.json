@@ -1,0 +1,22 @@
+{
+  "name": "OwnGram",
+  "short_name": "OwnGram",
+  "description": "Modern P2P Messenger",
+  "start_url": "/chat",
+  "display": "standalone",
+  "background_color": "#0E1621",
+  "theme_color": "#2481cc",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
+

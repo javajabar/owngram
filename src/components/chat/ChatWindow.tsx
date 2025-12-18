@@ -38,7 +38,7 @@ function formatLastSeen(dateStr: string): string {
   })
 }
 
-export function ChatWindow({ chatId }: { chatId: string }) {
+export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, userRole?: 'owner' | 'admin' | 'member' | null }) {
   const [messages, setMessages] = useState<Message[]>([])
   const [newMessage, setNewMessage] = useState('')
   const [chat, setChat] = useState<Chat | null>(null)
@@ -102,6 +102,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   }, [isCalling, incomingCall, isInCall, otherUser])
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const prevMessagesCountRef = useRef<number>(0)
   const { user } = useAuthStore()
   const { incomingCall: globalIncomingCall, clearIncomingCall } = useCallStore()
   const router = useRouter()
@@ -115,6 +116,30 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     }
     
     fetchMyProfile()
+
+    // Listen for profile changes (like default_reaction update)
+    const channel = supabase
+      .channel(`my_profile_updates_${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${user.id}`
+        },
+        (payload) => {
+          console.log('My profile updated:', payload.new)
+          const updatedProfile = payload.new as Profile
+          profileCache.set(user.id, updatedProfile) // Update cache too
+          setMyProfile(updatedProfile)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [user?.id])
 
   // Check block status
@@ -555,27 +580,63 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   }
 
   const fetchUsersForInvite = async (query: string) => {
-    if (!query.trim() || !user) return
+    if (!user) return
     const cleanQuery = query.replace('@', '').trim()
     
     // Get current members to exclude them
     const memberIds = groupMembers.map(m => m.id)
     
-    const { data } = await supabase
+    let queryBuilder = supabase
       .from('profiles')
       .select('*')
       .neq('id', user.id)
-      .not('id', 'in', `(${memberIds.join(',')})`)
-      .ilike('username', `%${cleanQuery}%`)
-      .limit(10)
+    
+    if (memberIds.length > 0) {
+      queryBuilder = queryBuilder.not('id', 'in', `(${memberIds.join(',')})`)
+    }
+
+    if (cleanQuery) {
+      queryBuilder = queryBuilder.ilike('username', `%${cleanQuery}%`)
+    } else {
+      // If no query, maybe show users we already have chats with
+      const { data: myChats } = await supabase
+        .from('chat_members')
+        .select('chat_id')
+        .eq('user_id', user.id)
+      
+      if (myChats && myChats.length > 0) {
+        const chatIds = myChats.map((c: any) => c.chat_id)
+        const { data: otherMembers } = await supabase
+          .from('chat_members')
+          .select('user_id')
+          .in('chat_id', chatIds)
+          .neq('user_id', user.id)
+        
+        if (otherMembers && otherMembers.length > 0) {
+          const recentUserIds = Array.from(new Set(otherMembers.map((m: any) => m.user_id)))
+            .filter(id => !memberIds.includes(id as string))
+          
+          if (recentUserIds.length > 0) {
+            queryBuilder = queryBuilder.in('id', recentUserIds)
+          }
+        }
+      }
+    }
+    
+    const { data } = await queryBuilder.limit(10)
     
     if (data) setAvailableForInvite(data as Profile[])
   }
 
   useEffect(() => {
+    if (showInviteModal) {
+      fetchUsersForInvite(inviteSearchQuery)
+    }
+  }, [showInviteModal])
+
+  useEffect(() => {
     const timer = setTimeout(() => {
-      if (inviteSearchQuery) fetchUsersForInvite(inviteSearchQuery)
-      else setAvailableForInvite([])
+      if (showInviteModal) fetchUsersForInvite(inviteSearchQuery)
     }, 300)
     return () => clearTimeout(timer)
   }, [inviteSearchQuery])
@@ -589,58 +650,68 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   }
 
   useEffect(() => {
-    scrollToBottom()
+    // Only scroll to bottom when NEW messages are added, not on updates (like reactions)
+    if (messages.length > prevMessagesCountRef.current) {
+      scrollToBottom()
+    }
+    prevMessagesCountRef.current = messages.length
   }, [messages])
 
   useEffect(() => {
     if (!chatId || !user) return
 
     // Fetch Chat Info
-    supabase.from('chats').select('*').eq('id', chatId).single()
-      .then(({ data }) => {
-          if (data) {
-              setChat(data as Chat)
-              // If DM, fetch other user (or self for "Избранное")
-              if (data.type === 'dm') {
-                  supabase.from('chat_members')
-                    .select('user_id, profiles!user_id(*)')
-                    .eq('chat_id', chatId)
-                    .neq('user_id', user.id)
-                    .maybeSingle()
-                    .then(({ data: memberData }) => {
-                        if (memberData?.profiles) {
-                            setOtherUser(memberData.profiles as unknown as Profile)
-                        } else {
-                            // If no other user found, this might be "Избранное" (self-chat)
-                            // Set otherUser to current user
-                            supabase.from('profiles')
-                                .select('*')
-                                .eq('id', user.id)
-                                .single()
-                                .then(({ data: selfProfile }) => {
-                                    if (selfProfile) setOtherUser(selfProfile as Profile)
-                                })
-                        }
-                    })
-              } else if (data.type === 'group') {
-                  // Fetch all members for group
-                  supabase.from('chat_members')
-                    .select('user_id, profiles!user_id(*)')
-                    .eq('chat_id', chatId)
-                    .then(({ data: membersData }) => {
-                        if (membersData) {
-                            const profiles = membersData
-                                .map(m => m.profiles as unknown as Profile)
-                                .filter(Boolean)
-                            setGroupMembers(profiles)
-                        }
-                    })
-              }
+    const fetchChatInfo = async () => {
+      const { data } = await supabase.from('chats').select('*').eq('id', chatId).single()
+      if (data) {
+        setChat(data as Chat)
+        // If DM, fetch other user (or self for "Избранное")
+        if (data.type === 'dm') {
+          const { data: memberData } = await supabase.from('chat_members')
+            .select('user_id, profiles!user_id(*)')
+            .eq('chat_id', chatId)
+            .neq('user_id', user.id)
+            .maybeSingle()
+
+          if (memberData?.profiles) {
+            setOtherUser(memberData.profiles as unknown as Profile)
+          } else {
+            const selfProfile = await profileCache.fetch(user.id, supabase)
+            if (selfProfile) setOtherUser(selfProfile as Profile)
           }
-      })
+        } else if (data.type === 'group') {
+          // Fetch all members for group with roles
+          const { data: membersData } = await supabase.from('chat_members')
+            .select('user_id, role, profiles!user_id(*)')
+            .eq('chat_id', chatId)
+          
+          if (membersData) {
+            const profiles = membersData.map(m => ({
+              ...(m.profiles as unknown as Profile),
+              role: m.role
+            })).filter(p => p.id)
+            setGroupMembers(profiles as any)
+          }
+        }
+      }
+    }
+    
+    fetchChatInfo()
 
     // Fetch Messages
     const fetchInitialMessages = async () => {
+      // Load from cache first
+      const cacheKey = `messages_cache_${chatId}`
+      const cached = localStorage.getItem(cacheKey)
+      if (cached) {
+        try {
+          setMessages(JSON.parse(cached))
+          setTimeout(scrollToBottom, 50)
+        } catch (e) {
+          console.error('Cache parse error:', e)
+        }
+      }
+
       setHasMore(true)
       const { data, error } = await supabase.from('messages')
       .select('*, sender:profiles!sender_id(*), forwarded_from:profiles!forwarded_from_id(*)')
@@ -650,7 +721,6 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       
         if (error) {
           console.error('Error fetching messages:', error)
-          setMessages([])
           return
         }
         
@@ -661,7 +731,10 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           .reverse() as Message[] // Reverse back to chronological order
         
           setMessages(mappedMessages)
-        setHasMore(data.length === MESSAGES_PER_PAGE)
+          // Update cache
+          localStorage.setItem(cacheKey, JSON.stringify(mappedMessages))
+          
+          setHasMore(data.length === MESSAGES_PER_PAGE)
         
         // Initial scroll to bottom
         setTimeout(scrollToBottom, 100)
@@ -896,17 +969,23 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const insertCallMessage = async (status: 'completed' | 'missed' | 'rejected' | 'cancelled', duration: number = 0) => {
     if (!user || !chatId) return
 
+    const totalSeconds = Math.floor(duration / 1000)
     const callInfo = {
       status,
-      duration: Math.floor(duration / 1000) // convert ms to seconds
+      duration: totalSeconds
     }
+
+    const mins = Math.floor(totalSeconds / 60)
+    const secs = totalSeconds % 60
+    const durationText = mins > 0 ? `${mins} мин ${secs} сек` : `${secs} сек`
 
     const { error } = await supabase.from('messages').insert({
       chat_id: chatId,
       sender_id: user.id,
-      content: status === 'completed' ? `Звонок завершен (${Math.floor(duration / 60)} мин ${duration % 60} сек)` : 
+      content: status === 'completed' ? `Звонок завершен (${durationText})` : 
                status === 'missed' ? 'Пропущенный звонок' :
-               status === 'rejected' ? 'Отклоненный звонок' : 'Звонок',
+               status === 'rejected' ? 'Отклоненный звонок' : 
+               status === 'cancelled' ? 'Отмененный звонок' : 'Звонок',
       type: 'call',
       call_info: callInfo,
       created_at: new Date().toISOString(),
@@ -917,7 +996,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     }
   }
 
-  const handleEndCall = async () => {
+  const handleEndCall = async (isInitiator: boolean = false) => {
     // Stop ringing sound
     soundManager.stopCallRinging()
     
@@ -927,6 +1006,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     if (webrtcHandlerRef.current) {
       await webrtcHandlerRef.current.endCall()
       webrtcHandlerRef.current = null
+    }
+
+    // Insert call message based on state IF I am the one who clicked the button
+    if (isInitiator) {
+      if (isCalling && !isInCall) {
+        await insertCallMessage('cancelled')
+      } else if (isInCall && callStartTime) {
+        const duration = Date.now() - callStartTime
+        await insertCallMessage('completed', duration)
+      }
     }
 
     setIsCalling(false)
@@ -1061,6 +1150,9 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
     // Stop ringing sound
     soundManager.stopCallRinging()
+
+    // Insert call message
+    await insertCallMessage('rejected')
 
     // Send call reject
     await supabase.from('call_signals').insert({
@@ -1235,24 +1327,18 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               // Stop ringing sound
               soundManager.stopCallRinging()
               
-              // ONLY the receiver of the signal inserts the message to avoid duplicates
+              // Only insert 'missed' for receiver when caller cancels
               if (signalFrom !== currentUserStr) {
-                if (refIsCalling && signal.signal_type === 'call-reject') {
-                  // Caller receives reject
-                  await insertCallMessage('rejected')
-                } else if (refIncomingCall && signal.signal_type === 'call-end') {
-                  // Receiver receives cancel from caller
+                if (refIncomingCall && signal.signal_type === 'call-end') {
+                  // Receiver receives cancel from caller - Caller already inserted 'cancelled'
+                  // So receiver inserts 'missed' for themselves
                   await insertCallMessage('missed')
-                } else if (refIsInCall && signal.signal_type === 'call-end' && callStartTime) {
-                  // Someone hangs up during call
-                  const duration = Date.now() - callStartTime
-                  await insertCallMessage('completed', duration)
                 }
               }
               
               // If it's a DM, end the whole thing. If group, maybe just one person left.
               if (chat?.type === 'dm') {
-                handleEndCall()
+                handleEndCall(false) // Not an initiator (received signal)
               }
             }
           } else {
@@ -1397,7 +1483,53 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       }
   }
 
-  const handleFileUpload = async (files: FileList) => {
+  const [isDragging, setIsDragging] = useState(false)
+
+  const compressImage = async (file: File): Promise<Blob | File> => {
+    if (!file.type.startsWith('image/')) return file
+    
+    return new Promise((resolve) => {
+      const reader = new FileReader()
+      reader.readAsDataURL(file)
+      reader.onload = (event) => {
+        const img = new Image()
+        img.src = event.target?.result as string
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          let width = img.width
+          let height = img.height
+          
+          // Max dimensions
+          const MAX_WIDTH = 1920
+          const MAX_HEIGHT = 1080
+          
+          if (width > height) {
+            if (width > MAX_WIDTH) {
+              height *= MAX_WIDTH / width
+              width = MAX_WIDTH
+            }
+          } else {
+            if (height > MAX_HEIGHT) {
+              width *= MAX_HEIGHT / height
+              height = MAX_HEIGHT
+            }
+          }
+          
+          canvas.width = width
+          canvas.height = height
+          const ctx = canvas.getContext('2d')
+          ctx?.drawImage(img, 0, 0, width, height)
+          
+          canvas.toBlob((blob) => {
+            if (blob) resolve(blob)
+            else resolve(file)
+          }, 'image/jpeg', 0.8) // 80% quality
+        }
+      }
+    })
+  }
+
+  const handleFileUpload = async (files: FileList | File[]) => {
     if (!user || !chatId) return
     
     setIsUploading(true)
@@ -1406,13 +1538,19 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       for (const file of Array.from(files)) {
         const isImage = file.type.startsWith('image/')
         const fileType = isImage ? 'image' : 'file'
+        
+        // Compress if image
+        const fileToUpload = isImage ? await compressImage(file) : file
+        
         const fileName = `${Date.now()}-${file.name}`
         const filePath = `${chatId}/${fileName}`
         
         // Upload file
         const { error: uploadError } = await supabase.storage
           .from('chat-attachments')
-          .upload(filePath, file, { contentType: file.type })
+          .upload(filePath, fileToUpload, { 
+            contentType: isImage ? 'image/jpeg' : file.type 
+          })
         
         if (uploadError) throw uploadError
         
@@ -1441,6 +1579,29 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       alert('Ошибка при загрузке файла')
     } finally {
       setIsUploading(false)
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(true)
+  }
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+  }
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragging(false)
+
+    const files = e.dataTransfer.files
+    if (files && files.length > 0) {
+      await handleFileUpload(files)
     }
   }
 
@@ -1584,6 +1745,18 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const deleteMessage = async (messageId: string, deleteForAll: boolean) => {
     if (!user) return
     
+    // Find the message to check sender
+    const messageToDelete = messages.find(m => m.id === messageId)
+    if (!messageToDelete) return
+
+    const isOwnMessage = messageToDelete.sender_id === user.id
+    const isAdmin = userRole === 'owner' || userRole === 'admin'
+
+    if (!isOwnMessage && !isAdmin) {
+      alert('У вас нет прав для удаления этого сообщения')
+      return
+    }
+    
     try {
       if (deleteForAll) {
         // Delete for everyone
@@ -1595,14 +1768,10 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             content: 'Сообщение удалено'
           })
           .eq('id', messageId)
-          .eq('sender_id', user.id) // Only sender can delete for all
         
         if (error) throw error
       } else {
-        // Delete only for current user (soft delete by marking as deleted)
-        // We'll need to track this differently - maybe add a deleted_by_user_ids array
-        // For now, we'll use a simple approach: mark as deleted for this user
-        // This requires a more complex schema, so for MVP we'll just delete for all
+        // Delete only for current user
         const { error } = await supabase
           .from('messages')
           .update({ 
@@ -1632,7 +1801,27 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   }
 
   return (
-    <div className="flex flex-col h-full bg-[#E5E5E5] dark:bg-[#0E1621] max-w-full overflow-x-hidden">
+    <div 
+      className="flex flex-col h-full bg-[#E5E5E5] dark:bg-[#0E1621] max-w-full overflow-x-hidden relative"
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag and Drop Overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-[100] bg-blue-500/20 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+          <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-2xl border-4 border-dashed border-blue-500 flex flex-col items-center gap-4 animate-in zoom-in duration-200">
+            <div className="w-20 h-20 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center text-blue-500">
+              <Paperclip className="w-10 h-10" />
+            </div>
+            <div className="text-center">
+              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-1">Отправка файлов</h3>
+              <p className="text-gray-500 dark:text-gray-400">Перетащите файлы сюда для отправки</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="h-16 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 flex items-center px-4 justify-between shrink-0 shadow-sm z-10">
         <div 
@@ -1858,14 +2047,21 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 {/* Header with gradient */}
                 <div className="h-32 bg-gradient-to-br from-blue-500 via-purple-600 to-pink-500 relative rounded-t-[2.5rem]">
                     <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
+                    <button 
+                        onClick={() => setShowProfile(false)}
+                        className="absolute top-6 right-6 p-2 bg-black/20 hover:bg-black/40 text-white rounded-full transition-all active:scale-90 z-10 backdrop-blur-md"
+                        title="Закрыть"
+                    >
+                        <X className="w-6 h-6" />
+                    </button>
                 </div>
                 
                 <div className="px-8 pb-8 pt-2">
                     {/* Avatar */}
-                    <div className="relative -mt-16 mb-6 flex justify-center">
+                    <div className="relative -mt-24 mb-8 flex justify-center">
                         <div className="relative group">
                             <div 
-                                className="w-28 h-28 rounded-full border-4 border-white dark:border-[#17212B] shadow-xl overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center cursor-pointer hover:opacity-95 transition-all hover:scale-105"
+                                className="w-44 h-44 rounded-full border-8 border-white dark:border-[#17212B] shadow-2xl overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center cursor-pointer hover:opacity-95 transition-all hover:scale-105"
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     const url = chat?.type === 'group' ? chat.avatar_url : otherUser?.avatar_url
@@ -1878,9 +2074,9 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                     <img src={chat?.type === 'group' ? chat.avatar_url! : otherUser?.avatar_url!} className="w-full h-full object-cover" alt="Avatar" />
                                 ) : (
                                     chat?.type === 'group' ? (
-                                        <Users className="w-14 h-14 text-gray-400" />
+                                        <Users className="w-20 h-20 text-gray-400" />
                                     ) : (
-                                        <span className="text-4xl font-bold text-gray-500 dark:text-gray-300">
+                                        <span className="text-6xl font-bold text-gray-500 dark:text-gray-300">
                                             {(chat?.type === 'dm' ? (otherUser?.username?.[0] || otherUser?.full_name?.[0]) : (chat?.name?.[0])) || '?'}
                                         </span>
                                     )
@@ -1894,9 +2090,9 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                         const input = document.getElementById('group-avatar-upload') as HTMLInputElement
                                         if (input) input.click()
                                     }}
-                                    className="absolute bottom-1 right-1 p-2.5 bg-blue-500 text-white rounded-full shadow-lg hover:bg-blue-600 transition-all active:scale-90"
+                                    className="absolute bottom-2 right-2 p-3 bg-blue-500 text-white rounded-full shadow-lg hover:bg-blue-600 transition-all active:scale-90 border-4 border-white dark:border-[#17212B]"
                                 >
-                                    <Camera className="w-5 h-5" />
+                                    <Camera className="w-6 h-6" />
                                 </button>
                             )}
                             <input
@@ -1923,38 +2119,60 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     )}
                     
                     {/* User Info / Group Members */}
-                    <div className="mb-8 text-center space-y-4">
+                    <div className="mb-10 text-center space-y-6">
                         <div>
-                            <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-1 tracking-tight">
+                            <h2 className="text-4xl font-black text-gray-900 dark:text-white mb-2 tracking-tight">
                                 {chat?.type === 'dm' 
                                     ? (chat?.name === 'Избранное' ? 'Избранное' : (otherUser?.full_name || otherUser?.username?.replace(/^@+/, '') || 'User'))
                                     : chat?.name}
                             </h2>
                             {chat?.type === 'dm' && chat?.name !== 'Избранное' && otherUser?.username && (
-                                <p className="text-blue-500 dark:text-blue-400 text-base font-bold tracking-wide">@{otherUser.username.replace(/^@+/, '')}</p>
+                                <p className="text-blue-500 dark:text-blue-400 text-xl font-bold tracking-wide">@{otherUser.username.replace(/^@+/, '')}</p>
                             )}
                             {chat?.type === 'group' && (
-                                <div className="flex items-center justify-center gap-2">
-                                    <p className="text-gray-500 text-sm font-bold uppercase tracking-widest">{groupMembers.length} участников</p>
+                                <div className="flex items-center justify-center gap-3">
+                                    <p className="text-gray-500 text-base font-bold uppercase tracking-[0.2em]">{groupMembers.length} участников</p>
                                     <button 
                                         onClick={(e) => { e.stopPropagation(); setShowInviteModal(true) }}
-                                        className="p-2 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-xl text-blue-500 transition-all active:scale-90"
+                                        className="p-2.5 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-2xl text-blue-500 transition-all active:scale-90"
                                         title="Пригласить"
                                     >
-                                        <UserPlus className="w-5 h-5" />
+                                        <UserPlus className="w-6 h-6" />
                                     </button>
                                 </div>
                             )}
                         </div>
+
+                        {chat?.type === 'group' && (
+                          <div className="flex justify-center max-w-sm mx-auto">
+                            {userRole === 'owner' && (
+                              <button 
+                                onClick={async () => {
+                                  const { error } = await supabase
+                                    .from('chats')
+                                    .update({ is_channel: !chat?.is_channel })
+                                    .eq('id', chat?.id)
+                                  if (!error) setChat(prev => prev ? { ...prev, is_channel: !prev.is_channel } : null)
+                                }}
+                                className={`flex flex-col items-center justify-center p-4 rounded-2xl transition-all group ${chat?.is_channel ? 'bg-blue-50 dark:bg-blue-900/20' : 'bg-gray-50 dark:bg-gray-900/20'}`}
+                              >
+                                <div className={`w-12 h-12 rounded-2xl flex items-center justify-center text-white mb-2 shadow-lg transition-transform group-hover:scale-110 ${chat?.is_channel ? 'bg-blue-500 shadow-blue-500/30' : 'bg-gray-500 shadow-gray-500/30'}`}><Users className="w-6 h-6" /></div>
+                                <span className={`text-sm font-bold uppercase tracking-wider ${chat?.is_channel ? 'text-blue-600 dark:text-blue-400' : 'text-gray-600 dark:text-gray-400'}`}>
+                                  {chat?.is_channel ? 'Канал: ВКЛ' : 'Канал: ВЫКЛ'}
+                                </span>
+                              </button>
+                            )}
+                          </div>
+                        )}
                         
                         {chat?.type === 'dm' && otherUser?.status && (
                             <div className="pt-2">
-                                <p className="text-gray-600 dark:text-gray-300 text-base italic leading-relaxed font-medium">"{otherUser.status}"</p>
+                                <p className="text-gray-600 dark:text-gray-300 text-xl italic leading-relaxed font-medium">"{otherUser.status}"</p>
                             </div>
                         )}
                         
                         {chat?.type === 'group' && (
-                            <div className="pt-6 border-t border-gray-100 dark:border-gray-800 max-h-[32rem] overflow-y-auto space-y-6 px-4 text-left scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
+                            <div className="pt-6 border-t border-gray-100 dark:border-gray-800 max-h-[32rem] overflow-y-auto space-y-1 px-4 text-left scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
                                 {groupMembers.map(member => {
                                     const lastSeenAt = member.last_seen_at
                                     const isMemberOnline = lastSeenAt ? (Date.now() - new Date(lastSeenAt).getTime()) < 120000 : false
@@ -1998,16 +2216,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                         )}
                         
                         {chat?.type === 'dm' && otherUser?.bio && (
-                            <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
-                                <p className="text-gray-700 dark:text-gray-200 text-base leading-relaxed whitespace-pre-wrap break-words font-medium">
+                            <div className="pt-6 border-t border-gray-100 dark:border-gray-800">
+                                <p className="text-gray-700 dark:text-gray-200 text-lg leading-relaxed whitespace-pre-wrap break-words font-medium">
                                     {otherUser.bio}
                                 </p>
                             </div>
                         )}
                         
                         {chat?.type === 'dm' && otherUser?.birth_date && (
-                            <div className="pt-2">
-                                <p className="text-gray-500 dark:text-gray-400 text-sm font-semibold">
+                            <div className="pt-3">
+                                <p className="text-gray-500 dark:text-gray-400 text-base font-semibold">
                                     🎂 {new Date(otherUser.birth_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
                                 </p>
                             </div>
@@ -2015,7 +2233,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     </div>
                     
                     {/* Action Buttons */}
-                    <div className="space-y-3">
+                    <div className="pt-6 flex flex-col items-center">
                         {chat?.type === 'dm' && chat?.name !== 'Избранное' && otherUser?.id !== user?.id && (
                             <button 
                                 onClick={async () => {
@@ -2050,18 +2268,11 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                         alert('Ошибка при выполнении операции')
                                     }
                                 }}
-                                className={`w-full py-4 text-base ${isBlockedByMe ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white' : 'bg-red-500 hover:bg-red-600 text-white'} rounded-2xl font-black transition-all duration-200 shadow-lg hover:shadow-xl active:scale-95`}
+                                className={`text-sm font-black uppercase tracking-[0.15em] transition-all duration-200 active:scale-95 px-8 py-3 rounded-full ${isBlockedByMe ? 'text-blue-500 bg-blue-500/10 hover:bg-blue-500/20' : 'text-red-500 bg-red-500/10 hover:bg-red-500/20'}`}
                             >
-                                {isBlockedByMe ? 'Разблокировать' : 'Заблокировать'}
+                                {isBlockedByMe ? 'Разблокировать' : 'Заблокировать пользователя'}
                             </button>
                         )}
-                    
-                    <button 
-                        onClick={() => setShowProfile(false)}
-                            className="w-full py-4 text-base bg-gray-100 dark:bg-[#242F3D] hover:bg-gray-200 dark:hover:bg-[#2b394a] rounded-2xl text-gray-900 dark:text-white font-black transition-all duration-200 shadow-md hover:shadow-lg active:scale-95"
-                    >
-                        Закрыть
-                    </button>
                     </div>
                 </div>
             </div>
@@ -2167,16 +2378,34 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               </button>
             </div>
             
-            <div className="p-6">
+            <div className="p-6 space-y-6">
+              {/* Invite Link Section */}
+              <div 
+                onClick={async () => {
+                  const link = `${window.location.origin}/join/${chat?.invite_token}`
+                  await navigator.clipboard.writeText(link)
+                  alert('Ссылка скопирована!')
+                }}
+                className="flex items-center gap-4 p-4 bg-purple-50 dark:bg-purple-900/10 rounded-2xl cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/20 transition-all border-2 border-dashed border-purple-200 dark:border-purple-800/50 group"
+              >
+                <div className="w-12 h-12 bg-purple-500 rounded-xl flex items-center justify-center text-white shrink-0 shadow-lg shadow-purple-500/20 group-hover:scale-105 transition-transform">
+                  <Share2 className="w-6 h-6" />
+                </div>
+                <div className="flex-1">
+                  <div className="font-bold text-purple-700 dark:text-purple-400">Пригласить по ссылке</div>
+                  <div className="text-xs text-purple-500/70 truncate">{window.location.origin}/join/{chat?.invite_token}</div>
+                </div>
+                <Copy className="w-5 h-5 text-purple-400" />
+              </div>
+
               <div className="relative">
                 <Search className="absolute left-4 top-3 w-5 h-5 text-gray-400" />
                 <input 
                   type="text" 
-                  placeholder="Поиск по @username..." 
+                  placeholder="Найти пользователей по @username..." 
                   value={inviteSearchQuery}
                   onChange={(e) => setInviteSearchQuery(e.target.value)}
                   className="w-full pl-12 pr-4 py-3.5 bg-gray-100 dark:bg-[#242F3D] border-2 border-transparent focus:border-blue-500 rounded-2xl text-base outline-none transition-all text-gray-900 dark:text-white font-medium"
-                  autoFocus
                 />
               </div>
             </div>
@@ -2219,7 +2448,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         isIncoming={incomingCall && !isInCall}
         otherUser={chat?.type === 'group' ? { id: 'group', username: null, full_name: chat.name, avatar_url: chat.avatar_url, status: null, last_seen_at: null } as Profile : otherUser}
         callStartTime={callStartTime}
-        onClose={handleEndCall}
+        onClose={() => handleEndCall(true)}
         onAccept={handleAcceptCall}
         onReject={handleRejectCall}
         localStream={localStream}
@@ -2235,6 +2464,10 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         {(isBlockedByMe || isBlockingMe) ? (
           <div className="flex items-center justify-center p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl text-gray-500 dark:text-gray-400 text-sm font-medium">
             {isBlockedByMe ? 'Вы заблокировали этого пользователя' : 'Вас заблокировали'}
+          </div>
+        ) : (chat?.is_channel && userRole === 'member') ? (
+          <div className="flex items-center justify-center p-4 bg-gray-50 dark:bg-gray-800/50 rounded-2xl text-gray-500 dark:text-gray-400 text-sm font-medium">
+            Это канал. Только администраторы могут писать.
           </div>
         ) : (
         <form onSubmit={sendMessage} className="flex items-center gap-2 max-w-4xl mx-auto">

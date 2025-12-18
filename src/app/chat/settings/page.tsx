@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/store/useAuthStore'
 import { Profile } from '@/types'
 import { ArrowLeft, Save } from 'lucide-react'
 import { useRouter } from 'next/navigation'
+import { REACTIONS_LIST } from '@/lib/constants'
 
 type Theme = 'light' | 'dark' | 'dark-blue'
 
@@ -23,16 +24,17 @@ export default function SettingsPage() {
   const [emailChangeLoading, setEmailChangeLoading] = useState(false)
   const [theme, setTheme] = useState<Theme>('dark-blue')
   const [defaultReaction, setDefaultReaction] = useState('❤️')
-
-  const REACTIONS_LIST = ['❤️', '🍌', '👍', '🔥', '😂', '😮', '😢', '👏']
+  const lastReactionSaveRef = useRef<string | null>(null)
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   const applyTheme = (selectedTheme: Theme) => {
-    const html = document.querySelector('html')
+    const html = document.documentElement
     if (!html) return
+    
+    console.log('Applying theme:', selectedTheme)
     
     // Remove all theme classes
     html.classList.remove('light', 'dark', 'dark-blue')
-    html.removeAttribute('data-theme')
     
     if (selectedTheme === 'light') {
       html.classList.add('light')
@@ -41,16 +43,13 @@ export default function SettingsPage() {
       html.classList.add('dark')
       html.setAttribute('data-theme', 'dark')
     } else if (selectedTheme === 'dark-blue') {
-      // Both dark (for base dark styles) and dark-blue (for specific overrides)
       html.classList.add('dark')
       html.classList.add('dark-blue')
       html.setAttribute('data-theme', 'dark-blue')
     }
     
     localStorage.setItem('theme', selectedTheme)
-    
-    // Force re-render for components that might rely on media queries or classes
-    window.dispatchEvent(new Event('resize'))
+    window.dispatchEvent(new Event('storage')) // Notify other tabs/components
   }
 
   // Apply theme on mount
@@ -60,6 +59,7 @@ export default function SettingsPage() {
       setTheme(savedTheme)
       applyTheme(savedTheme)
     } else {
+      setTheme('dark-blue')
       applyTheme('dark-blue')
     }
   }, [])
@@ -110,37 +110,77 @@ export default function SettingsPage() {
     applyTheme(newTheme)
   }
 
-  const handleSave = async (newUsername?: string, newReaction?: string) => {
+  const handleSave = async (updates: { username?: string, default_reaction?: string } = {}) => {
     if (!user) return
 
-    const targetUsername = newUsername !== undefined ? newUsername : username
-    const targetReaction = newReaction !== undefined ? newReaction : defaultReaction
+    const { username: newUsername, default_reaction: newReaction } = updates
     
-    setSaving(true)
-    try {
-      // Validate username
-      if (targetUsername && !/^[a-zA-Z0-9_]+$/.test(targetUsername)) {
-        return
-      }
-
-      const cleanUsername = targetUsername.replace(/^@+/, '')
-
-      // Update profile
-      const { error: profileError } = await supabase
-        .from('profiles')
-        .update({
-          username: cleanUsername ? '@' + cleanUsername : null,
-          default_reaction: targetReaction,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', user.id)
-
-      if (profileError) throw profileError
+    // For reactions - use debounce to prevent race conditions
+    if (newReaction !== undefined) {
+      lastReactionSaveRef.current = newReaction
       
-    } catch (error: any) {
-      console.error('Error saving settings:', error)
-    } finally {
-      setSaving(false)
+      // Clear previous timeout
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current)
+      }
+      
+      // Debounce reaction saves
+      saveTimeoutRef.current = setTimeout(async () => {
+        // Check if this is still the latest reaction
+        if (lastReactionSaveRef.current !== newReaction) return
+        
+        setSaving(true)
+        try {
+          const { error } = await supabase
+            .from('profiles')
+            .update({ 
+              default_reaction: newReaction,
+              updated_at: new Date().toISOString()
+            })
+            .eq('id', user.id)
+          
+          if (error) throw error
+          console.log('Reaction saved:', newReaction)
+        } catch (error: any) {
+          console.error('Error saving reaction:', error)
+          // Revert on error
+          const { data } = await supabase
+            .from('profiles')
+            .select('default_reaction')
+            .eq('id', user.id)
+            .single()
+          if (data?.default_reaction) {
+            setDefaultReaction(data.default_reaction)
+          }
+        } finally {
+          setSaving(false)
+        }
+      }, 300)
+      
+      return
+    }
+    
+    // For username - save immediately
+    if (newUsername !== undefined) {
+      setSaving(true)
+      try {
+        const cleanUsername = newUsername.replace(/^@+/, '')
+        const { error } = await supabase
+          .from('profiles')
+          .update({ 
+            username: cleanUsername ? '@' + cleanUsername : null,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', user.id)
+
+        if (error) throw error
+        setUsername(cleanUsername)
+      } catch (error: any) {
+        console.error('Error saving username:', error)
+        alert('Ошибка при сохранении: ' + (error.message || 'Неизвестная ошибка'))
+      } finally {
+        setSaving(false)
+      }
     }
   }
 
@@ -203,7 +243,7 @@ export default function SettingsPage() {
             <input
               type="text"
               value={username}
-              onBlur={() => handleSave()}
+              onBlur={() => handleSave({ username })}
               onChange={(e) => {
                 const value = e.target.value.replace(/[^a-zA-Z0-9_]/g, '')
                 setUsername(value)
@@ -326,8 +366,9 @@ export default function SettingsPage() {
               <button
                 key={emoji}
                 onClick={() => {
-                  setDefaultReaction(emoji)
-                  handleSave(undefined, emoji)
+                  if (defaultReaction === emoji) return // Don't re-save same reaction
+                  setDefaultReaction(emoji) // Update UI immediately
+                  handleSave({ default_reaction: emoji }) // Save with debounce
                 }}
                 className={`h-12 flex items-center justify-center text-2xl rounded-lg transition-all ${
                   defaultReaction === emoji

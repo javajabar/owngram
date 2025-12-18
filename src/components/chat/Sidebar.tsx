@@ -8,6 +8,7 @@ import { useAuthStore } from '@/store/useAuthStore'
 import { Plus, Settings, LogOut, User as UserIcon, Search, Trash2, X, MoreVertical, Users } from 'lucide-react'
 import { soundManager } from '@/lib/sounds'
 import { profileCache } from '@/lib/cache'
+import { cn } from '@/lib/utils'
 
 export function Sidebar() {
     const [chats, setChats] = useState<Chat[]>([])
@@ -21,10 +22,15 @@ export function Sidebar() {
   const [showGlobalSearch, setShowGlobalSearch] = useState(false)
     const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; chatId: string } | null>(null)
+    const longPressTimerRef = useRef<NodeJS.Timeout | null>(null)
+    const touchStartPosRef = useRef<{ x: number; y: number; chatId: string } | null>(null)
+    const longPressTriggeredRef = useRef<boolean>(false)
     const [savedMessagesChecked, setSavedMessagesChecked] = useState(false)
     const [userChatIds, setUserChatIds] = useState<string[]>([])
     const [onlineUsers, setOnlineUsers] = useState<Set<string>>(new Set())
     const [isLoadingChats, setIsLoadingChats] = useState(false)
+    const [typingUsers, setTypingUsers] = useState<Record<string, string[]>>({}) // chat_id -> user_ids[]
+    const typingChannelsRef = useRef<Record<string, any>>({})
     const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const chatsRef = useRef<Chat[]>([])
     const userChatIdsRef = useRef<string[]>([])
@@ -41,19 +47,138 @@ export function Sidebar() {
     userChatIdsRef.current = userChatIds
   }, [chats, userChatIds])
 
-  // Close menu when clicking outside
+  // Close menu when clicking/touching outside
   useEffect(() => {
-    const handleClickOutside = () => {
+    const handleClickOutside = (e: MouseEvent | TouchEvent) => {
       setContextMenu(null)
     }
     document.addEventListener('click', handleClickOutside)
-    return () => document.removeEventListener('click', handleClickOutside)
+    document.addEventListener('touchstart', handleClickOutside)
+    return () => {
+      document.removeEventListener('click', handleClickOutside)
+      document.removeEventListener('touchstart', handleClickOutside)
+      // Clean up all typing channels on unmount
+      Object.values(typingChannelsRef.current).forEach(channel => {
+        supabase.removeChannel(channel)
+      })
+      typingChannelsRef.current = {}
+    }
   }, [])
+
+  // Handle typing indicators for all chats in sidebar
+  useEffect(() => {
+    if (!user || chats.length === 0) return
+
+    // Clean up old channels that are no longer in chats list
+    const currentChatIds = new Set(chats.map(c => c.id))
+    Object.keys(typingChannelsRef.current).forEach(id => {
+      if (!currentChatIds.has(id)) {
+        supabase.removeChannel(typingChannelsRef.current[id])
+        delete typingChannelsRef.current[id]
+      }
+    })
+
+    // Subscribe to new channels
+    chats.forEach(chat => {
+      if (typingChannelsRef.current[chat.id]) return
+
+      const channel = supabase.channel(`chat_typing_sidebar_${chat.id}`)
+        .on('broadcast', { event: 'typing' }, ({ payload }) => {
+          const { user_id, is_typing } = payload
+          if (user_id === user.id) return
+
+          setTypingUsers(prev => {
+            const current = prev[chat.id] || []
+            if (is_typing) {
+              if (current.includes(user_id)) return prev
+              return { ...prev, [chat.id]: [...current, user_id] }
+            } else {
+              if (!current.includes(user_id)) return prev
+              return { ...prev, [chat.id]: current.filter(id => id !== user_id) }
+            }
+          })
+        })
+        .subscribe()
+
+      typingChannelsRef.current[chat.id] = channel
+    })
+  }, [chats, user?.id])
+
+  const openContextMenu = (x: number, y: number, chatId: string) => {
+    setContextMenu({ x, y, chatId })
+  }
 
   const handleContextMenu = (e: React.MouseEvent, chatId: string) => {
     e.preventDefault()
-    setContextMenu({ x: e.clientX, y: e.clientY, chatId })
+    openContextMenu(e.clientX, e.clientY, chatId)
   }
+
+  const handleTouchStart = (e: React.TouchEvent, chatId: string) => {
+    const touch = e.touches[0]
+    touchStartPosRef.current = { x: touch.clientX, y: touch.clientY, chatId }
+    longPressTriggeredRef.current = false
+    
+    // Start long press timer (500ms)
+    longPressTimerRef.current = setTimeout(() => {
+      if (touchStartPosRef.current) {
+        e.preventDefault()
+        e.stopPropagation()
+        longPressTriggeredRef.current = true
+        openContextMenu(touchStartPosRef.current.x, touchStartPosRef.current.y, touchStartPosRef.current.chatId)
+        // Haptic feedback on mobile
+        if ('vibrate' in navigator) {
+          navigator.vibrate(50)
+        }
+      }
+    }, 500)
+  }
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    // Clear long press timer if user lifts finger before timeout
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+    
+    // Prevent click if long press was triggered
+    if (longPressTriggeredRef.current) {
+      e.preventDefault()
+      e.stopPropagation()
+      // Reset after a short delay
+      setTimeout(() => {
+        longPressTriggeredRef.current = false
+      }, 100)
+    }
+    
+    touchStartPosRef.current = null
+  }
+
+  const handleTouchMove = (e: React.TouchEvent) => {
+    // Cancel long press if user moves finger too much
+    if (touchStartPosRef.current && longPressTimerRef.current) {
+      const touch = e.touches[0]
+      const deltaX = Math.abs(touch.clientX - touchStartPosRef.current.x)
+      const deltaY = Math.abs(touch.clientY - touchStartPosRef.current.y)
+      
+      // If moved more than 10px, cancel long press
+      if (deltaX > 10 || deltaY > 10) {
+        if (longPressTimerRef.current) {
+          clearTimeout(longPressTimerRef.current)
+          longPressTimerRef.current = null
+        }
+        touchStartPosRef.current = null
+      }
+    }
+  }
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current)
+      }
+    }
+  }, [])
 
   const fetchChats = async (showLoading = false) => {
     if (!user) return
@@ -640,7 +765,7 @@ export function Sidebar() {
         <div className="flex gap-2">
             <button 
                 onClick={() => router.push('/chat/profile')} 
-                className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden hover:opacity-80 transition-opacity"
+                className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-700 overflow-hidden hover:opacity-80 transition-all duration-300 ease-in-out hover:scale-110 active:scale-95"
                 title="My Profile"
             >
                 {myProfile?.avatar_url ? (
@@ -653,7 +778,7 @@ export function Sidebar() {
             </button>
             <button 
                 onClick={() => { setShowCreateGroup(true); fetchAvailableUsers() }}
-                className="w-10 h-10 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-colors"
+                className="w-10 h-10 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-all duration-300 ease-in-out hover:scale-110 active:scale-95"
                 title="Create Group"
             >
                 <Plus className="w-5 h-5" />
@@ -674,7 +799,7 @@ export function Sidebar() {
                     else if (value.trim()) { setShowGlobalSearch(true); searchAllMessages(value) } 
                     else { setShowGlobalSearch(false); setGlobalSearchResults([]) }
                 }}
-                            className="w-full pl-9 pr-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                            className="w-full pl-9 pr-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-300 ease-in-out"
                         />
                     </div>
                 </div>
@@ -684,7 +809,11 @@ export function Sidebar() {
             <div className="p-2">
                 <div className="px-2 mb-2 flex items-center justify-between">
                     <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Результаты поиска</h3>
-                    <button onClick={() => { setShowGlobalSearch(false); setGlobalSearchQuery(''); setGlobalSearchResults([]); setSearchQuery('') }} className="p-1 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded">
+                    <button 
+                        onClick={() => { setShowGlobalSearch(false); setGlobalSearchQuery(''); setGlobalSearchResults([]); setSearchQuery('') }} 
+                        className="p-1 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
+                        title="Закрыть поиск"
+                    >
                         <X className="w-4 h-4" />
                     </button>
                 </div>
@@ -693,7 +822,7 @@ export function Sidebar() {
                 ) : globalSearchResults.length > 0 ? (
                     <div className="space-y-2">
                         {globalSearchResults.map((result, idx) => (
-                            <div key={idx} onClick={() => { router.push(`/chat/${result.chat.id}`); setShowGlobalSearch(false); setSearchQuery('') }} className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer transition-colors flex items-start gap-3">
+                            <div key={idx} onClick={() => { router.push(`/chat/${result.chat.id}`); setShowGlobalSearch(false); setSearchQuery('') }} className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer transition-all duration-300 ease-in-out flex items-start gap-3 hover:scale-[1.02] active:scale-95">
                                 <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700">
                                     {result.sender?.avatar_url ? <img src={result.sender.avatar_url} className="w-full h-full object-cover" alt="U" /> : <span className="text-gray-600 dark:text-gray-300 font-semibold text-sm">{(result.sender?.username?.[0] || 'U').toUpperCase()}</span>}
                                 </div>
@@ -714,7 +843,7 @@ export function Sidebar() {
                 {isSearching ? <div className="text-center py-4 text-gray-400 text-sm">Поиск...</div> : users.length === 0 ? <div className="text-center p-4 text-gray-400 text-sm">Пользователь не найден</div> : (
                     <div className="space-y-1">
                         {users.map(u => (
-                            <div key={u.id} onClick={() => createChat(u.id)} className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer flex items-center gap-3 transition-colors">
+                            <div key={u.id} onClick={() => createChat(u.id)} className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer flex items-center gap-3 transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95">
                                 <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
                                     {u.avatar_url ? <img src={u.avatar_url} className="w-full h-full object-cover" alt="U" /> : <span className="text-gray-600 dark:text-gray-300 font-semibold text-sm">{(u.username?.[0] || 'U').toUpperCase()}</span>}
                                 </div>
@@ -735,8 +864,18 @@ export function Sidebar() {
                         const avatarUrl = chat.type === 'dm' ? chat.otherUser?.avatar_url : chat.avatar_url
                         const lastMsg = chat.lastMessage
                         const unreadCount = chat.unreadCount || 0
+                        const typingInChat = typingUsers[chat.id] || []
+                        const isTyping = typingInChat.length > 0
                         let lastMsgPreview = 'No messages yet'
-                        if (lastMsg) {
+                        
+                        if (isTyping) {
+                            if (chat.type === 'dm') {
+                                lastMsgPreview = 'печатает...'
+                            } else {
+                                // For groups, we could ideally show the name, but for now just "кто-то печатает"
+                                lastMsgPreview = 'кто-то печатает...'
+                            }
+                        } else if (lastMsg) {
                             const isFromMe = lastMsg.sender_id === user?.id
                             const senderName = isFromMe ? 'Вы' : (lastMsg.sender?.full_name || lastMsg.sender?.username?.replace(/^@+/, '') || 'User')
                             
@@ -750,8 +889,26 @@ export function Sidebar() {
                             lastMsgPreview = `${senderName}: ${content}`
                         }
                         return (
-                            <div key={chat.id} onContextMenu={(e) => handleContextMenu(e, chat.id)} className="px-3 py-2.5 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] cursor-pointer border-b border-gray-800 dark:border-gray-800 transition-colors flex items-center gap-3 relative group">
-                                <div onClick={() => router.push(`/chat/${chat.id}`)} className="flex items-center gap-3 flex-1 min-w-0">
+                            <div 
+                                key={chat.id} 
+                                onContextMenu={(e) => handleContextMenu(e, chat.id)}
+                                onTouchStart={(e) => handleTouchStart(e, chat.id)}
+                                onTouchEnd={handleTouchEnd}
+                                onTouchMove={handleTouchMove}
+                                className="px-3 py-2.5 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] cursor-pointer border-b border-gray-800 dark:border-gray-800 transition-all duration-300 ease-in-out flex items-center gap-3 relative group hover:scale-[1.01] active:scale-95"
+                            >
+                                <div 
+                                    onClick={(e) => {
+                                      // Prevent navigation if long press was triggered
+                                      if (longPressTriggeredRef.current) {
+                                        e.preventDefault()
+                                        e.stopPropagation()
+                                        return
+                                      }
+                                      router.push(`/chat/${chat.id}`)
+                                    }} 
+                                    className="flex items-center gap-3 flex-1 min-w-0"
+                                >
                                     <div className="relative w-14 h-14 rounded-full flex items-center justify-center shrink-0 bg-gray-200 dark:bg-gray-700">
                                         <div className="w-14 h-14 rounded-full overflow-hidden flex items-center justify-center">
                                         {avatarUrl ? (
@@ -778,7 +935,10 @@ export function Sidebar() {
                                             </div>
                                         </div>
                                         <div className="flex items-center justify-between gap-2">
-                                            <div className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
+                                            <div className={cn(
+                                                "text-sm truncate flex-1",
+                                                isTyping ? "text-green-500 font-medium animate-pulse" : "text-gray-500 dark:text-gray-400"
+                                            )}>
                                                 {lastMsgPreview}
                                             </div>
                                             {unreadCount > 0 && <div className="bg-blue-500 text-white text-xs font-semibold rounded-full px-1.5 py-0.5 min-w-[18px] h-[18px] text-center shrink-0 flex items-center justify-center">{unreadCount}</div>}
@@ -805,15 +965,15 @@ export function Sidebar() {
 
       <div className="mt-auto p-4 border-t border-gray-800 dark:border-gray-800 bg-[#17212B] dark:bg-[#17212B] shrink-0">
         <div className="flex gap-2">
-          <button onClick={() => router.push('/chat/settings')} className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2"><Settings className="w-4 h-4" /><span>Настройки</span></button>
-          <button onClick={() => { signOut(); router.push('/login') }} className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2"><LogOut className="w-4 h-4" /><span>Выход</span></button>
+          <button onClick={() => router.push('/chat/settings')} className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-all duration-300 ease-in-out flex items-center justify-center gap-2 hover:scale-105 active:scale-95"><Settings className="w-4 h-4" /><span>Настройки</span></button>
+          <button onClick={() => { signOut(); router.push('/login') }} className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-all duration-300 ease-in-out flex items-center justify-center gap-2 hover:scale-105 active:scale-95"><LogOut className="w-4 h-4" /><span>Выход</span></button>
         </div>
       </div>
 
       {showCreateGroup && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowCreateGroup(false)}>
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between"><h2 className="text-xl font-bold text-gray-900 dark:text-white">Создать группу</h2><button onClick={() => setShowCreateGroup(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"><X className="w-5 h-5 text-gray-500" /></button></div>
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between"><h2 className="text-xl font-bold text-gray-900 dark:text-white">Создать группу</h2><button onClick={() => setShowCreateGroup(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded" title="Закрыть"><X className="w-5 h-5 text-gray-500" /></button></div>
             <div className="p-4 flex-1 overflow-y-auto space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Название группы</label>
@@ -834,7 +994,7 @@ export function Sidebar() {
                     type="text" 
                     placeholder="Поиск по @username..." 
                     onChange={(e) => fetchAvailableUsers(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                    className="w-full pl-9 pr-4 py-2 bg-gray-100 dark:bg-gray-900 border border-gray-300 dark:border-gray-700 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-300 ease-in-out"
                   />
                 </div>
               </div>
@@ -843,7 +1003,7 @@ export function Sidebar() {
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Участники ({selectedUsers.length})</label>
                 <div className="space-y-2 max-h-60 overflow-y-auto">
                   {availableUsers.map((userProfile) => (
-                    <div key={userProfile.id} onClick={() => { if (selectedUsers.includes(userProfile.id)) { setSelectedUsers(selectedUsers.filter(id => id !== userProfile.id)) } else { setSelectedUsers([...selectedUsers, userProfile.id]) } }} className={`p-3 rounded-lg cursor-pointer transition-colors flex items-center gap-3 ${selectedUsers.includes(userProfile.id) ? 'bg-blue-100 dark:bg-blue-900/30 border-2 border-blue-500' : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                    <div key={userProfile.id} onClick={() => { if (selectedUsers.includes(userProfile.id)) { setSelectedUsers(selectedUsers.filter(id => id !== userProfile.id)) } else { setSelectedUsers([...selectedUsers, userProfile.id]) } }} className={`p-3 rounded-lg cursor-pointer transition-all duration-300 ease-in-out flex items-center gap-3 hover:scale-[1.02] active:scale-95 ${selectedUsers.includes(userProfile.id) ? 'bg-blue-100 dark:bg-blue-900/30 border-2 border-blue-500' : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
                       <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">{userProfile.avatar_url ? <img src={userProfile.avatar_url} className="w-full h-full object-cover" alt="U" /> : <div className="w-full h-full flex items-center justify-center text-sm font-bold text-gray-500">{(userProfile.username?.[0] || 'U').toUpperCase()}</div>}</div>
                       <div className="flex-1"><div className="font-medium text-gray-900 dark:text-white">{userProfile.full_name || userProfile.username}</div><div className="text-sm text-gray-500 dark:text-gray-400">@{userProfile.username}</div></div>
                       {selectedUsers.includes(userProfile.id) && <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center"><span className="text-white text-xs">✓</span></div>}
@@ -851,7 +1011,7 @@ export function Sidebar() {
                   ))}
                 </div></div>
             </div>
-            <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex gap-2"><button onClick={() => { setShowCreateGroup(false); setGroupName(''); setSelectedUsers([]) }} className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors">Отмена</button><button onClick={createGroup} className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors">Создать</button></div>
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex gap-2"><button onClick={() => { setShowCreateGroup(false); setGroupName(''); setSelectedUsers([]) }} className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-all duration-300 ease-in-out hover:scale-105 active:scale-95">Отмена</button><button onClick={createGroup} className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-all duration-300 ease-in-out hover:scale-105 active:scale-95">Создать</button></div>
           </div>
         </div>
       )}

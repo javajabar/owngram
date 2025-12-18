@@ -11,7 +11,8 @@ export default function ChatIdPage() {
   const router = useRouter()
   const { user, loading, checkUser } = useAuthStore()
   const [checkingAccess, setCheckingAccess] = useState(true)
-  const [hasAccess, setHasAccess] = useState(false)
+  const [hasAccess, setHasAccess] = useState(true) // Optimistic access
+  const [userRole, setUserRole] = useState<'owner' | 'admin' | 'member' | null>(null)
 
   useEffect(() => {
     checkUser()
@@ -28,10 +29,10 @@ export default function ChatIdPage() {
 
     const checkAccess = async () => {
       try {
-        // Check if user is a member of this chat
+        // Check if user is a member of this chat and get their role
         const { data, error } = await supabase
           .from('chat_members')
-          .select('chat_id')
+          .select('chat_id, role')
           .eq('chat_id', params.id as string)
           .eq('user_id', user.id)
           .maybeSingle()
@@ -43,11 +44,12 @@ export default function ChatIdPage() {
         }
 
         if (!data) {
-          // User is not a member of this chat
+          // User is not a member of this chat - redirect to main screen
           router.push('/chat')
           return
         }
 
+        setUserRole(data.role as any || 'member')
         setHasAccess(true)
       } catch (error) {
         console.error('Error checking chat access:', error)
@@ -61,21 +63,14 @@ export default function ChatIdPage() {
   }, [user, params?.id, loading, router])
 
   if (loading || checkingAccess) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="animate-pulse flex flex-col items-center">
-          <div className="h-12 w-12 bg-blue-500 rounded-full mb-4"></div>
-          <div className="text-gray-500">Loading...</div>
-        </div>
-      </div>
-    )
+    return null // Silent loading
   }
 
-  if (!user || !hasAccess || !params?.id) {
+  if (!hasAccess || !params?.id) {
     return null
   }
 
-  return <ChatWindow chatId={params.id as string} />
+  return <ChatWindow chatId={params.id as string} userRole={userRole} />
 }
 
 

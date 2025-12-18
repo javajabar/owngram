@@ -4,17 +4,39 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --primary: #3b82f6;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+/* Force light theme if .light class is present */
+html.light,
+html[data-theme='light'] {
+  --background: #ffffff;
+  --foreground: #171717;
+  color-scheme: light;
 }
 
+/* Dark theme variables */
+html.dark,
+html[data-theme='dark'] {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  color-scheme: dark;
+}
+
+/* Dark Blue theme variables */
+html.dark-blue,
+html[data-theme='dark-blue'] {
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+  color-scheme: dark;
+}
+
+/* System dark preference - only if no theme class is explicitly set */
 @media (prefers-color-scheme: dark) {
-  :root {
+  html:not(.light):not(.dark):not(.dark-blue):not([data-theme]) {
     --background: #0a0a0a;
     --foreground: #ededed;
+    color-scheme: dark;
   }
 }
 
@@ -22,6 +44,8 @@ html {
   overflow-x: hidden;
   width: 100%;
   position: relative;
+  background: var(--background);
+  color: var(--foreground);
 }
 
 body {
@@ -33,6 +57,7 @@ body {
   position: relative;
   margin: 0;
   padding: 0;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Custom Font Class */

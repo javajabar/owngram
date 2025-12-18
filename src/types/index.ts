@@ -45,6 +45,8 @@ export interface Chat {
   name: string | null
   avatar_url: string | null
   created_at: string
+  invite_token?: string | null
+  is_channel?: boolean
 }
 
 

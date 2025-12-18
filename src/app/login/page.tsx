@@ -592,18 +592,6 @@ export default function LoginPage() {
                     <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300">
                       Пароль
                     </label>
-                    {!isSignUp && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsForgotPassword(true)
-                          setError(null)
-                        }}
-                        className="text-xs text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
-                      >
-                        Забыли пароль?
-                      </button>
-                    )}
                   </div>
                   <input
                     id="password"
@@ -615,6 +603,20 @@ export default function LoginPage() {
                     placeholder="••••••••"
                     minLength={6}
                   />
+                  {!isSignUp && (
+                    <div className="flex justify-end mt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsForgotPassword(true)
+                          setError(null)
+                        }}
+                        className="text-xs text-blue-600 hover:text-blue-500 dark:text-blue-400 dark:hover:text-blue-300"
+                      >
+                        Забыли пароль?
+                      </button>
+                    </div>
+                  )}
                 {isSignUp && (
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Минимум 6 символов
