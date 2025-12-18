@@ -16,7 +16,7 @@ export function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
-  const [globalSearchResults, setGlobalSearchResults] = useState<Message[]>([])
+  const [globalSearchResults, setGlobalSearchResults] = useState<{ message: Message; chat: any; sender: Profile | null }[]>([])
   const [isGlobalSearching, setIsGlobalSearching] = useState(false)
   const [showGlobalSearch, setShowGlobalSearch] = useState(false)
     const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
