@@ -636,7 +636,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     }
     
     // Check global state for incoming call (in case call arrived before ChatWindow loaded)
-    if (globalIncomingCall && globalIncomingCall.chatId === chatId) {
+    if (globalIncomingCall && globalIncomingCall.chatId === chatId && globalIncomingCall.fromUserId) {
       console.log('📞 Found incoming call in global state:', globalIncomingCall)
       processIncomingCall(globalIncomingCall.chatId, globalIncomingCall.fromUserId)
     }
