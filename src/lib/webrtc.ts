@@ -92,6 +92,16 @@ export class WebRTCHandler {
       // Handle remote stream
       this.peerConnection.ontrack = (event) => {
         console.log('📥 Remote track received:', event.track.kind, event.track.label, event.track.readyState)
+        
+        // Handle each track individually
+        if (event.track.kind === 'audio') {
+          console.log('🎵 Audio track received:', event.track.label, event.track.readyState)
+          // Ensure audio track is enabled
+          event.track.enabled = true
+        } else if (event.track.kind === 'video') {
+          console.log('📹 Video track received:', event.track.label, event.track.readyState)
+        }
+        
         if (event.streams && event.streams[0]) {
           this.remoteStream = event.streams[0]
           
@@ -106,6 +116,8 @@ export class WebRTCHandler {
             track.enabled = true
             console.log('🔊 Remote audio track enabled:', track.label, track.enabled, track.readyState)
           })
+          
+          // Notify about remote stream (will be handled by CallModal)
           this.onRemoteStream(this.remoteStream)
         }
       }

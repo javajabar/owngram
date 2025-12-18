@@ -37,6 +37,7 @@ export function CallModal({
 }: CallModalProps) {
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
+  const remoteAudioRef = useRef<HTMLAudioElement>(null)
   const [callDuration, setCallDuration] = useState<string>('00:00')
 
   useEffect(() => {
@@ -46,15 +47,31 @@ export function CallModal({
   }, [localStream])
 
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream
-      // Ensure audio is enabled
-      remoteVideoRef.current.volume = 1.0
-      remoteVideoRef.current.muted = false
-      // Play the video to ensure audio starts
-      remoteVideoRef.current.play().catch(err => {
-        console.error('Error playing remote video:', err)
-      })
+    if (remoteStream) {
+      // Handle video
+      if (remoteVideoRef.current) {
+        remoteVideoRef.current.srcObject = remoteStream
+        remoteVideoRef.current.play().catch(err => {
+          console.error('Error playing remote video:', err)
+        })
+      }
+      
+      // Handle audio separately (required for autoplay policy)
+      if (remoteAudioRef.current) {
+        // Create audio-only stream from remote stream
+        const audioTracks = remoteStream.getAudioTracks()
+        if (audioTracks.length > 0) {
+          const audioStream = new MediaStream(audioTracks)
+          remoteAudioRef.current.srcObject = audioStream
+          remoteAudioRef.current.volume = 1.0
+          remoteAudioRef.current.muted = false
+          
+          // Try to play audio (will work after user gesture)
+          remoteAudioRef.current.play().catch(err => {
+            console.log('⚠️ Audio autoplay blocked (will play after user interaction):', err)
+          })
+        }
+      }
     }
   }, [remoteStream])
 
@@ -86,6 +103,14 @@ export function CallModal({
 
   return (
     <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center">
+      {/* Hidden audio element for remote audio stream */}
+      <audio
+        ref={remoteAudioRef}
+        autoPlay
+        playsInline
+        className="hidden"
+      />
+      
       <div className="relative w-full h-full flex flex-col">
         {/* Remote Video */}
         <div className="flex-1 relative bg-gray-900">
@@ -153,7 +178,18 @@ export function CallModal({
               </button>
               {onAccept && (
                 <button
-                  onClick={onAccept}
+                  onClick={async () => {
+                    // User gesture - now we can play audio
+                    if (remoteAudioRef.current) {
+                      try {
+                        await remoteAudioRef.current.play()
+                        console.log('✅ Audio playback started after user gesture')
+                      } catch (err) {
+                        console.error('❌ Error playing audio after user gesture:', err)
+                      }
+                    }
+                    onAccept()
+                  }}
                   className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-600 flex items-center justify-center transition-colors shadow-lg"
                 >
                   <Phone className="w-8 h-8 text-white" />

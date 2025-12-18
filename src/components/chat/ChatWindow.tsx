@@ -559,7 +559,11 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         user.id,
         otherUser.id,
         chatId,
-        (stream) => setRemoteStream(stream),
+        (stream) => {
+          console.log('📥 Remote stream received in ChatWindow:', stream)
+          setRemoteStream(stream)
+          // Audio will be played by CallModal after user gesture (this click)
+        },
         handleEndCall
       )
       webrtcHandlerRef.current = handler
