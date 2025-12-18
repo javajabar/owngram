@@ -7,7 +7,21 @@ class SoundManager {
     if (!this.audioContext) {
       this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)()
     }
+    // Attempt to resume if suspended (common browser policy)
+    if (this.audioContext.state === 'suspended') {
+      this.audioContext.resume().catch(err => {
+        console.debug('Failed to resume AudioContext:', err)
+      })
+    }
     return this.audioContext
+  }
+
+  // Force initialize on user gesture
+  async init(): Promise<void> {
+    const ctx = this.getAudioContext()
+    if (ctx.state === 'suspended') {
+      await ctx.resume()
+    }
   }
 
   // Play a pleasant tone
