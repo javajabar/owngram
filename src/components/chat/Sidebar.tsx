@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Profile, Chat } from '@/types'
+import { Profile, Chat, Message } from '@/types'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/useAuthStore'
 import { Plus, Settings, LogOut, User as UserIcon, Search, Trash2, X, MoreVertical } from 'lucide-react'
