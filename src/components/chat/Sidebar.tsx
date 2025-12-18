@@ -95,7 +95,7 @@ export function Sidebar() {
         // Fetch all members of these chats
         const { data: allMembers } = await supabase
                             .from('chat_members')
-            .select('chat_id, user_id, profiles(*)')
+            .select('chat_id, user_id, profiles!user_id(*)')
             .in('chat_id', chatIds)
         
         // Populate profile cache
@@ -121,7 +121,7 @@ export function Sidebar() {
         // Fetch last messages
         const { data: lastMessages } = await supabase
             .from('messages')
-            .select('*, sender:profiles(*)')
+            .select('*, sender:profiles!sender_id(*)')
             .in('chat_id', chatIds)
             .order('created_at', { ascending: false })
 
@@ -369,7 +369,7 @@ export function Sidebar() {
 
             const { data: fullMessage } = await supabase
                 .from('messages')
-                .select('*, sender:profiles(*)')
+                .select('*, sender:profiles!sender_id(*)')
                 .eq('id', message.id)
                 .single()
             
@@ -498,7 +498,7 @@ export function Sidebar() {
         chatIds = data.map(m => m.chat_id)
         setUserChatIds(chatIds)
       }
-      const { data: messages, error } = await supabase.from('messages').select('*, sender:profiles(*), chats(id, name, type)').in('chat_id', chatIds).ilike('content', `%${query}%`).order('created_at', { ascending: false }).limit(50)
+      const { data: messages, error } = await supabase.from('messages').select('*, sender:profiles!sender_id(*), chats(id, name, type)').in('chat_id', chatIds).ilike('content', `%${query}%`).order('created_at', { ascending: false }).limit(50)
       if (error) throw error
       const results = (messages || []).map((msg: any) => ({ message: msg, chat: msg.chats, sender: msg.sender }))
       setGlobalSearchResults(results)
@@ -573,7 +573,7 @@ export function Sidebar() {
       // Default: only users we have chats with
       const { data: chatMembers, error: membersError } = await supabase
         .from('chat_members')
-        .select('user_id, profiles(*)')
+        .select('user_id, profiles!user_id(*)')
         .in('chat_id', userChatIds)
         .neq('user_id', user.id)
       

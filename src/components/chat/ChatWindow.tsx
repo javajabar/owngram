@@ -338,7 +338,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     
     const chatIds = memberships.map(m => m.chat_id)
     const { data: chatsData } = await supabase.from('chats').select('*').in('id', chatIds)
-    const { data: members } = await supabase.from('chat_members').select('chat_id, user_id, profiles(*)').in('chat_id', chatIds)
+    const { data: members } = await supabase.from('chat_members').select('chat_id, user_id, profiles!user_id(*)').in('chat_id', chatIds)
     
     const processed = chatsData?.map(c => {
       let name = c.name
@@ -405,7 +405,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               // If DM, fetch other user (or self for "Избранное")
               if (data.type === 'dm') {
                   supabase.from('chat_members')
-                    .select('user_id, profiles(*)')
+                    .select('user_id, profiles!user_id(*)')
                     .eq('chat_id', chatId)
                     .neq('user_id', user.id)
                     .maybeSingle()
@@ -427,7 +427,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               } else if (data.type === 'group') {
                   // Fetch all members for group
                   supabase.from('chat_members')
-                    .select('user_id, profiles(*)')
+                    .select('user_id, profiles!user_id(*)')
                     .eq('chat_id', chatId)
                     .then(({ data: membersData }) => {
                         if (membersData) {
@@ -445,7 +445,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     const fetchInitialMessages = async () => {
       setHasMore(true)
       const { data, error } = await supabase.from('messages')
-      .select('*, sender:profiles(*), forwarded_from:profiles(*)')
+      .select('*, sender:profiles!sender_id(*), forwarded_from:profiles!forwarded_from_id(*)')
       .eq('chat_id', chatId)
         .order('created_at', { ascending: false }) // Get latest first for pagination
         .limit(MESSAGES_PER_PAGE)
@@ -495,7 +495,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           if (payload.new.reply_to_id) {
             const { data: replyData } = await supabase
               .from('messages')
-              .select('*, sender:profiles(*)')
+              .select('*, sender:profiles!sender_id(*)')
               .eq('id', payload.new.reply_to_id)
               .single()
             replyTo = replyData as Message | null
@@ -560,7 +560,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             try {
               const { data: updatedMessage } = await supabase
                 .from('messages')
-                .select('*, sender:profiles(*)')
+                .select('*, sender:profiles!sender_id(*)')
                 .eq('id', payload.new.id)
                 .single()
               
@@ -1105,7 +1105,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
     try {
       const { data, error } = await supabase.from('messages')
-        .select('*, sender:profiles(*), forwarded_from:profiles(*)')
+        .select('*, sender:profiles!sender_id(*), forwarded_from:profiles!forwarded_from_id(*)')
         .eq('chat_id', chatId)
         .lt('created_at', oldestMsg.created_at)
         .order('created_at', { ascending: false })
@@ -1218,7 +1218,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       // Search only in current chat
       const { data, error } = await supabase
         .from('messages')
-        .select('*, sender:profiles(*)')
+        .select('*, sender:profiles!sender_id(*)')
         .eq('chat_id', chatId)
         .ilike('content', `%${query}%`)
         .order('created_at', { ascending: false })
