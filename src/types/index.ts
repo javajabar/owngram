@@ -7,6 +7,7 @@ export interface Profile {
   last_seen_at: string | null
   bio?: string | null
   birth_date?: string | null
+  default_reaction?: string
 }
 
 export interface Message {

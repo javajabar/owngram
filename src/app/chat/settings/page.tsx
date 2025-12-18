@@ -22,6 +22,9 @@ export default function SettingsPage() {
   const [isChangingEmail, setIsChangingEmail] = useState(false)
   const [emailChangeLoading, setEmailChangeLoading] = useState(false)
   const [theme, setTheme] = useState<Theme>('dark-blue')
+  const [defaultReaction, setDefaultReaction] = useState('❤️')
+
+  const REACTIONS_LIST = ['❤️', '🍌', '👍', '🔥', '😂', '😮', '😢', '👏']
 
   const applyTheme = (selectedTheme: Theme) => {
     const html = document.querySelector('html')
@@ -77,6 +80,7 @@ export default function SettingsPage() {
 
         if (profile) {
           setUsername(profile.username?.replace(/^@+/, '') || '')
+          setDefaultReaction(profile.default_reaction || '❤️')
         }
 
         // Get email from auth
@@ -106,10 +110,11 @@ export default function SettingsPage() {
     applyTheme(newTheme)
   }
 
-  const handleSave = async (newUsername?: string) => {
+  const handleSave = async (newUsername?: string, newReaction?: string) => {
     if (!user) return
 
     const targetUsername = newUsername !== undefined ? newUsername : username
+    const targetReaction = newReaction !== undefined ? newReaction : defaultReaction
     
     setSaving(true)
     try {
@@ -125,6 +130,7 @@ export default function SettingsPage() {
         .from('profiles')
         .update({
           username: cleanUsername ? '@' + cleanUsername : null,
+          default_reaction: targetReaction,
           updated_at: new Date().toISOString()
         })
         .eq('id', user.id)
@@ -308,6 +314,34 @@ export default function SettingsPage() {
               </div>
             </button>
           </div>
+        </div>
+
+        {/* Default Reaction */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Реакция по умолчанию (двойной клик)
+          </label>
+          <div className="grid grid-cols-4 gap-2 bg-white dark:bg-gray-800 p-3 rounded-xl border border-gray-200 dark:border-gray-700">
+            {REACTIONS_LIST.map(emoji => (
+              <button
+                key={emoji}
+                onClick={() => {
+                  setDefaultReaction(emoji)
+                  handleSave(undefined, emoji)
+                }}
+                className={`h-12 flex items-center justify-center text-2xl rounded-lg transition-all ${
+                  defaultReaction === emoji
+                    ? 'bg-blue-500/10 border-2 border-blue-500 scale-110 shadow-sm'
+                    : 'hover:bg-gray-100 dark:hover:bg-gray-700 border-2 border-transparent'
+                }`}
+              >
+                {emoji}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            Этот эмодзи будет отправлен при двойном нажатии на сообщение
+          </p>
         </div>
       </div>
 

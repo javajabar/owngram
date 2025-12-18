@@ -201,7 +201,7 @@ export function MessageBubble({
     e.preventDefault()
     e.stopPropagation()
     if (onReaction) {
-      onReaction(message.id, '🍌')
+      onReaction(message.id, user?.default_reaction || '❤️')
     }
   }
 
@@ -640,7 +640,7 @@ export function MessageBubble({
         </div>
 
         {/* Reactions Display - Positioned ABSOLUTE to raise them and overlap bubble */}
-        {hasReactions && (
+        {hasReactions && message.reactions && (
           <div className={cn(
             "absolute z-10 flex flex-wrap gap-1 bottom-[-10px]",
             isMe ? "right-1 justify-end" : "left-1 justify-start"
@@ -657,7 +657,10 @@ export function MessageBubble({
                     : "text-gray-600 dark:text-gray-400"
                 )}
               >
-                <span className={cn(emoji === '🍌' && "animate-bounce origin-bottom inline-block", "transition-transform")}>{emoji}</span>
+                <span className={cn(
+                  (emoji === '🍌' || emoji === user?.default_reaction) && "animate-bounce origin-bottom inline-block", 
+                  "transition-transform"
+                )}>{emoji}</span>
                 {userIds.length > 1 && <span className="font-bold">{userIds.length}</span>}
               </button>
             ))}
