@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { Profile, Chat, Message } from '@/types'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/useAuthStore'
-import { Plus, Settings, LogOut, User as UserIcon, Search, Trash2, X, MoreVertical } from 'lucide-react'
+import { Plus, Settings, LogOut, User as UserIcon, Search, Trash2, X, MoreVertical, Users } from 'lucide-react'
 import { soundManager } from '@/lib/sounds'
 import { profileCache } from '@/lib/cache'
 
@@ -601,14 +601,35 @@ export function Sidebar() {
       alert('Введите название группы и выберите участников'); return
     }
     try {
-      const { data: chatData, error: chatError } = await supabase.from('chats').insert({ type: 'group', name: groupName.trim(), created_at: new Date().toISOString() }).select().single()
+      const { data: chatData, error: chatError } = await supabase
+        .from('chats')
+        .insert({ 
+          type: 'group', 
+          name: groupName.trim()
+        })
+        .select()
+        .single()
+
       if (chatError) throw chatError
-      const members = [{ chat_id: chatData.id, user_id: user.id, created_at: new Date().toISOString() }, ...selectedUsers.map(userId => ({ chat_id: chatData.id, user_id: userId, created_at: new Date().toISOString() }))]
-      const { error: membersError } = await supabase.from('chat_members').insert(members)
+
+      const members = [
+        { chat_id: chatData.id, user_id: user.id },
+        ...selectedUsers.map(userId => ({ chat_id: chatData.id, user_id: userId }))
+      ]
+
+      const { error: membersError } = await supabase
+        .from('chat_members')
+        .insert(members)
+
       if (membersError) throw membersError
-      setShowCreateGroup(false); setGroupName(''); setSelectedUsers([]); router.push(`/chat/${chatData.id}`)
+
+      setShowCreateGroup(false); 
+      setGroupName(''); 
+      setSelectedUsers([]); 
+      router.push(`/chat/${chatData.id}`)
     } catch (error: any) {
-      console.error('Error creating group:', error); alert(`Ошибка при создании группы: ${error.message || 'Неизвестная ошибка'}`)
+      console.error('Error creating group:', error); 
+      alert(`Ошибка при создании группы: ${error.message || 'Неизвестная ошибка'}`)
     }
   }
 
@@ -714,15 +735,55 @@ export function Sidebar() {
                         const avatarUrl = chat.type === 'dm' ? chat.otherUser?.avatar_url : null
                         const lastMsg = chat.lastMessage
                         const unreadCount = chat.unreadCount || 0
-                        let lastMsgPreview = lastMsg ? `${lastMsg.sender_id === user?.id ? 'Вы' : (lastMsg.sender?.full_name || 'User')}: ${lastMsg.content}` : 'No messages yet'
+                        let lastMsgPreview = 'No messages yet'
+                        if (lastMsg) {
+                            const isFromMe = lastMsg.sender_id === user?.id
+                            const senderName = isFromMe ? 'Вы' : (lastMsg.sender?.full_name || lastMsg.sender?.username?.replace(/^@+/, '') || 'User')
+                            
+                            let content = lastMsg.content
+                            if (lastMsg.attachments && lastMsg.attachments.length > 0) {
+                                const type = lastMsg.attachments[0].type
+                                if (type === 'voice') content = '🎤 Голосовое сообщение'
+                                else if (type === 'image') content = '🖼 Фото'
+                                else content = '📎 Файл'
+                            }
+                            lastMsgPreview = `${senderName}: ${content}`
+                        }
                         return (
                             <div key={chat.id} onContextMenu={(e) => handleContextMenu(e, chat.id)} className="px-3 py-2.5 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] cursor-pointer border-b border-gray-800 dark:border-gray-800 transition-colors flex items-center gap-3 relative group">
                                 <div onClick={() => router.push(`/chat/${chat.id}`)} className="flex items-center gap-3 flex-1 min-w-0">
                                     <div className="relative w-14 h-14 rounded-full flex items-center justify-center shrink-0 bg-gray-200 dark:bg-gray-700">
-                                        <div className="w-14 h-14 rounded-full overflow-hidden flex items-center justify-center">{avatarUrl ? <img src={avatarUrl} className="w-full h-full object-cover" alt="U" /> : <span className="text-gray-600 dark:text-gray-300 font-semibold text-lg">{(displayName[0] || 'U').toUpperCase()}</span>}</div>
+                                        <div className="w-14 h-14 rounded-full overflow-hidden flex items-center justify-center">
+                                            {avatarUrl ? (
+                                                <img src={avatarUrl} className="w-full h-full object-cover" alt="U" />
+                                            ) : (
+                                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-tr from-blue-400 to-indigo-500">
+                                                    {chat.type === 'group' ? (
+                                                        <Users className="w-7 h-7 text-white" />
+                                                    ) : (
+                                                        <span className="text-white font-semibold text-lg">
+                                                            {(displayName[0] || 'U').toUpperCase()}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
                                         {chat.type === 'dm' && chat.otherUser && chat.otherUser.id !== user?.id && onlineUsers.has(chat.otherUser.id) && <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full z-10" style={{ transform: 'translate(25%, 25%)' }}></div>}
                                     </div>
-                                    <div className="flex-1 min-w-0"><div className="flex items-center justify-between mb-0.5"><div className="font-medium text-gray-900 dark:text-gray-100 truncate text-[15px]">{displayName}</div></div><div className="flex items-center justify-between gap-2"><div className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsgPreview}</div>{unreadCount > 0 && <div className="bg-blue-500 text-white text-xs font-semibold rounded-full px-1.5 py-0.5 min-w-[18px] h-[18px] text-center shrink-0 flex items-center justify-center">{unreadCount}</div>}</div></div>
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex items-center justify-between mb-0.5">
+                                            <div className="font-medium text-gray-900 dark:text-gray-100 truncate text-[15px] flex items-center gap-1.5">
+                                                {chat.type === 'group' && <Users className="w-4 h-4 text-blue-500 shrink-0" />}
+                                                {displayName}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
+                                                {lastMsgPreview}
+                                            </div>
+                                            {unreadCount > 0 && <div className="bg-blue-500 text-white text-xs font-semibold rounded-full px-1.5 py-0.5 min-w-[18px] h-[18px] text-center shrink-0 flex items-center justify-center">{unreadCount}</div>}
+                                        </div>
+                                    </div>
                                 </div>
                                 {contextMenu && contextMenu.chatId === chat.id && (
                                     <div 
