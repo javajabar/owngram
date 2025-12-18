@@ -1,7 +1,7 @@
 import { supabase } from './supabase'
 
 export interface CallSignal {
-  type: 'offer' | 'answer' | 'ice-candidate' | 'call-request' | 'call-accept' | 'call-reject' | 'call-end'
+  type: 'offer' | 'answer' | 'ice-candidate' | 'call-request' | 'call-accept' | 'call-reject' | 'call-end' | 'call-join'
   from: string
   to: string
   data?: any
@@ -9,31 +9,31 @@ export interface CallSignal {
 }
 
 export class WebRTCHandler {
-  private peerConnection: RTCPeerConnection | null = null
+  private peerConnections: Map<string, RTCPeerConnection> = new Map()
   private localStream: MediaStream | null = null
-  private remoteStream: MediaStream | null = null
+  private remoteStreams: Map<string, MediaStream> = new Map()
   private channel: any = null
   private userId: string
-  private otherUserId: string
   private chatId: string
-  private onRemoteStream: (stream: MediaStream) => void
+  private onRemoteStreamAdded: (userId: string, stream: MediaStream) => void
+  private onRemoteStreamRemoved: (userId: string) => void
   private onCallEnd: () => void
 
   constructor(
     userId: string,
-    otherUserId: string,
     chatId: string,
-    onRemoteStream: (stream: MediaStream) => void,
+    onRemoteStreamAdded: (userId: string, stream: MediaStream) => void,
+    onRemoteStreamRemoved: (userId: string) => void,
     onCallEnd: () => void
   ) {
     this.userId = userId
-    this.otherUserId = otherUserId
     this.chatId = chatId
-    this.onRemoteStream = onRemoteStream
+    this.onRemoteStreamAdded = onRemoteStreamAdded
+    this.onRemoteStreamRemoved = onRemoteStreamRemoved
     this.onCallEnd = onCallEnd
   }
 
-  async initialize(isInitiator: boolean) {
+  async initialize() {
     try {
       // Get user media with explicit audio constraints
       this.localStream = await navigator.mediaDevices.getUserMedia({
@@ -57,115 +57,8 @@ export class WebRTCHandler {
         console.log('🎤 Audio track enabled:', track.label, track.enabled, track.readyState)
       })
 
-      // Create peer connection with multiple STUN/TURN servers for better connectivity
-      this.peerConnection = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { urls: 'stun:stun2.l.google.com:19302' },
-          { urls: 'stun:stun3.l.google.com:19302' },
-          { urls: 'stun:stun4.l.google.com:19302' },
-          // Alternative STUN servers (work without VPN)
-          { urls: 'stun:stun.stunprotocol.org:3478' },
-          { urls: 'stun:stun.voiparound.com' },
-          { urls: 'stun:stun.voipbuster.com' },
-        ],
-      })
-
-      // Add local stream tracks (BOTH audio and video)
-      const allTracks = this.localStream.getTracks()
-      console.log('📡 Adding tracks to PeerConnection:', allTracks.length, 'tracks')
-      allTracks.forEach((track) => {
-        if (this.peerConnection) {
-          const sender = this.peerConnection.addTrack(track, this.localStream!)
-          console.log(`✅ Added ${track.kind} track:`, track.label, 'sender:', sender)
-        }
-      })
-      
-      // Verify tracks were added
-      const senders = this.peerConnection.getSenders()
-      console.log('📊 PeerConnection senders:', senders.length, senders.map(s => ({
-        track: s.track?.kind || 'null',
-        label: s.track?.label || 'null'
-      })))
-
-      // Handle remote stream
-      this.peerConnection.ontrack = (event) => {
-        console.log('📥 Remote track received:', event.track.kind, event.track.label, event.track.readyState)
-        
-        // Handle each track individually
-        if (event.track.kind === 'audio') {
-          console.log('🎵 Audio track received:', event.track.label, event.track.readyState)
-          // Ensure audio track is enabled
-          event.track.enabled = true
-        } else if (event.track.kind === 'video') {
-          console.log('📹 Video track received:', event.track.label, event.track.readyState)
-        }
-        
-        if (event.streams && event.streams[0]) {
-          this.remoteStream = event.streams[0]
-          
-          // Log all remote tracks
-          const remoteAudioTracks = this.remoteStream.getAudioTracks()
-          const remoteVideoTracks = this.remoteStream.getVideoTracks()
-          console.log('🔊 Remote audio tracks:', remoteAudioTracks.length, remoteAudioTracks.map(t => ({ label: t.label, enabled: t.enabled, readyState: t.readyState })))
-          console.log('📹 Remote video tracks:', remoteVideoTracks.length, remoteVideoTracks.map(t => ({ label: t.label, enabled: t.enabled, readyState: t.readyState })))
-          
-          // Ensure audio tracks are enabled
-          remoteAudioTracks.forEach(track => {
-            track.enabled = true
-            console.log('🔊 Remote audio track enabled:', track.label, track.enabled, track.readyState)
-          })
-          
-          // Notify about remote stream (will be handled by CallModal)
-          this.onRemoteStream(this.remoteStream)
-        }
-      }
-
-      // Handle ICE candidates
-      this.peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          this.sendSignal({
-            type: 'ice-candidate',
-            from: this.userId,
-            to: this.otherUserId,
-            data: event.candidate,
-            timestamp: new Date().toISOString(),
-          })
-        }
-      }
-
-      // Handle connection state changes
-      this.peerConnection.onconnectionstatechange = () => {
-        if (this.peerConnection?.connectionState === 'disconnected' || 
-            this.peerConnection?.connectionState === 'failed') {
-          this.endCall()
-        }
-      }
-
-      // Subscribe to signals
+      // Subscribe to signals and presence
       this.subscribeToSignals()
-
-      // Create offer if initiator
-      if (isInitiator) {
-        const offer = await this.peerConnection.createOffer()
-        
-        // Log SDP to verify audio is included
-        console.log('📝 Offer SDP:', offer.sdp)
-        const hasAudio = offer.sdp?.includes('m=audio') || offer.sdp?.includes('audio')
-        const hasVideo = offer.sdp?.includes('m=video') || offer.sdp?.includes('video')
-        console.log('🎵 Offer contains audio:', hasAudio)
-        console.log('📹 Offer contains video:', hasVideo)
-        
-        await this.peerConnection.setLocalDescription(offer)
-        this.sendSignal({
-          type: 'offer',
-          from: this.userId,
-          to: this.otherUserId,
-          data: offer,
-          timestamp: new Date().toISOString(),
-        })
-      }
 
       return this.localStream
     } catch (error) {
@@ -174,102 +67,205 @@ export class WebRTCHandler {
     }
   }
 
+  private createPeerConnection(otherUserId: string, isInitiator: boolean) {
+    if (this.peerConnections.has(otherUserId)) {
+      console.log('📡 Peer connection already exists for:', otherUserId)
+      return this.peerConnections.get(otherUserId)!
+    }
+
+    console.log('📡 Creating peer connection for:', otherUserId, 'isInitiator:', isInitiator)
+
+    const pc = new RTCPeerConnection({
+      iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' },
+        { urls: 'stun:stun3.l.google.com:19302' },
+        { urls: 'stun:stun4.l.google.com:19302' },
+        { urls: 'stun:stun.stunprotocol.org:3478' },
+        { urls: 'stun:stun.voiparound.com' },
+        { urls: 'stun:stun.voipbuster.com' },
+      ],
+    })
+
+    // Add local stream tracks
+    if (this.localStream) {
+      this.localStream.getTracks().forEach((track) => {
+        pc.addTrack(track, this.localStream!)
+      })
+    }
+
+    // Handle remote stream
+    pc.ontrack = (event) => {
+      if (event.streams && event.streams[0]) {
+        console.log('📥 Remote track received from:', otherUserId, event.track.kind)
+        const remoteStream = event.streams[0]
+        
+        // Ensure audio tracks are enabled
+        if (event.track.kind === 'audio') {
+          event.track.enabled = true
+        }
+
+        if (!this.remoteStreams.has(otherUserId)) {
+          this.remoteStreams.set(otherUserId, remoteStream)
+          this.onRemoteStreamAdded(otherUserId, remoteStream)
+        }
+      }
+    }
+
+    // Handle ICE candidates
+    pc.onicecandidate = (event) => {
+      if (event.candidate) {
+        this.sendSignal({
+          type: 'ice-candidate',
+          from: this.userId,
+          to: otherUserId,
+          data: event.candidate,
+          timestamp: new Date().toISOString(),
+        })
+      }
+    }
+
+    // Handle connection state changes
+    pc.onconnectionstatechange = () => {
+      console.log(`📡 Connection state with ${otherUserId}:`, pc.connectionState)
+      if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed' || pc.connectionState === 'closed') {
+        this.removePeer(otherUserId)
+      }
+    }
+
+    this.peerConnections.set(otherUserId, pc)
+
+    // Create offer if initiator
+    if (isInitiator) {
+      setTimeout(async () => {
+        try {
+          const offer = await pc.createOffer()
+          await pc.setLocalDescription(offer)
+          this.sendSignal({
+            type: 'offer',
+            from: this.userId,
+            to: otherUserId,
+            data: offer,
+            timestamp: new Date().toISOString(),
+          })
+        } catch (error) {
+          console.error('Error creating offer:', error)
+        }
+      }, 500) // Small delay to ensure tracks are added
+    }
+
+    return pc
+  }
+
+  private removePeer(userId: string) {
+    console.log('🧹 Removing peer:', userId)
+    const pc = this.peerConnections.get(userId)
+    if (pc) {
+      pc.close()
+      this.peerConnections.delete(userId)
+    }
+    if (this.remoteStreams.has(userId)) {
+      this.remoteStreams.delete(userId)
+      this.onRemoteStreamRemoved(userId)
+    }
+  }
+
   private subscribeToSignals() {
-    // Subscribe to Supabase Realtime for call signals
-    // Use unique channel name to avoid conflicts
     this.channel = supabase
-      .channel(`webrtc-${this.chatId}-${this.userId}`)
+      .channel(`webrtc-${this.chatId}`)
       .on(
         'postgres_changes',
         {
-          event: '*',
+          event: 'INSERT',
           schema: 'public',
           table: 'call_signals',
           filter: `chat_id=eq.${this.chatId}`,
         },
-        (payload) => {
+        async (payload) => {
           const signal = payload.new as any
-          console.log('🔊 WebRTCHandler received signal:', {
-            type: signal.signal_type,
-            from: signal.from_user_id,
-            to: signal.to_user_id,
-            myId: this.userId,
-            otherId: this.otherUserId,
-            isForMe: signal.from_user_id === this.otherUserId && signal.to_user_id === this.userId
-          })
           
-          // Only process signals from other user to us (for WebRTC: offer, answer, ice-candidate)
-          if (signal.from_user_id === this.otherUserId && signal.to_user_id === this.userId) {
-            console.log('✅ WebRTC signal is for me, processing...')
-            this.handleSignal({
-              type: signal.signal_type,
-              from: signal.from_user_id,
-              to: signal.to_user_id,
-              data: signal.signal_data,
-              timestamp: signal.created_at,
-            })
-          } else {
-            console.log('⏭️ WebRTC signal not for me, ignoring')
+          // Only process signals for us
+          if (signal.to_user_id !== this.userId) return
+
+          console.log('🔊 WebRTCHandler received signal:', signal.signal_type, 'from:', signal.from_user_id)
+
+          const fromUserId = signal.from_user_id
+          const signalData = signal.signal_data
+
+          switch (signal.signal_type) {
+            case 'offer':
+              const pcOffer = this.createPeerConnection(fromUserId, false)
+              await pcOffer.setRemoteDescription(new RTCSessionDescription(signalData))
+              const answer = await pcOffer.createAnswer()
+              await pcOffer.setLocalDescription(answer)
+              this.sendSignal({
+                type: 'answer',
+                from: this.userId,
+                to: fromUserId,
+                data: answer,
+                timestamp: new Date().toISOString(),
+              })
+              break
+
+            case 'answer':
+              const pcAnswer = this.peerConnections.get(fromUserId)
+              if (pcAnswer) {
+                await pcAnswer.setRemoteDescription(new RTCSessionDescription(signalData))
+              }
+              break
+
+            case 'ice-candidate':
+              const pcIce = this.peerConnections.get(fromUserId)
+              if (pcIce) {
+                await pcIce.addIceCandidate(new RTCIceCandidate(signalData))
+              }
+              break
+
+            case 'call-end':
+              this.removePeer(fromUserId)
+              break
           }
         }
       )
-      .subscribe((status) => {
-        console.log('📡 WebRTCHandler subscription status:', status)
+      .on('presence', { event: 'sync' }, () => {
+        const state = this.channel.presenceState()
+        console.log('📡 Presence sync:', state)
+        this.handlePresence(state)
+      })
+      .on('presence', { event: 'join' }, ({ newPresences }) => {
+        console.log('📡 Presence join:', newPresences)
+      })
+      .on('presence', { event: 'leave' }, ({ leftPresences }) => {
+        console.log('📡 Presence leave:', leftPresences)
+      })
+      .subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to WebRTC channel')
+          await this.channel.track({
+            user_id: this.userId,
+            joined_at: new Date().toISOString(),
+          })
+        }
       })
   }
 
-  private async handleSignal(signal: CallSignal) {
-    if (!this.peerConnection) return
-
-    try {
-      switch (signal.type) {
-        case 'offer':
-          await this.peerConnection.setRemoteDescription(new RTCSessionDescription(signal.data))
-          
-          // Log offer SDP to verify audio
-          console.log('📝 Received offer SDP:', signal.data.sdp)
-          const offerHasAudio = signal.data.sdp?.includes('m=audio') || signal.data.sdp?.includes('audio')
-          console.log('🎵 Offer contains audio:', offerHasAudio)
-          
-          const answer = await this.peerConnection.createAnswer()
-          
-          // Log answer SDP to verify audio
-          console.log('📝 Answer SDP:', answer.sdp)
-          const answerHasAudio = answer.sdp?.includes('m=audio') || answer.sdp?.includes('audio')
-          console.log('🎵 Answer contains audio:', answerHasAudio)
-          
-          await this.peerConnection.setLocalDescription(answer)
-          this.sendSignal({
-            type: 'answer',
-            from: this.userId,
-            to: this.otherUserId,
-            data: answer,
-            timestamp: new Date().toISOString(),
-          })
-          break
-
-        case 'answer':
-          await this.peerConnection.setRemoteDescription(new RTCSessionDescription(signal.data))
-          break
-
-        case 'ice-candidate':
-          await this.peerConnection.addIceCandidate(new RTCIceCandidate(signal.data))
-          break
-
-        case 'call-reject':
-        case 'call-end':
-          this.endCall()
-          break
+  private handlePresence(state: any) {
+    const participants = Object.values(state).flat() as any[]
+    participants.forEach((p) => {
+      if (p.user_id !== this.userId && !this.peerConnections.has(p.user_id)) {
+        // Simple rule: ID comparison to determine initiator
+        // The user with smaller ID (alphabetically) initiates the offer
+        if (this.userId < p.user_id) {
+          this.createPeerConnection(p.user_id, true)
+        }
       }
-    } catch (error) {
-      console.error('Error handling signal:', error)
-    }
+    })
   }
 
   private async sendSignal(signal: CallSignal) {
     try {
-      // Store signal in database for realtime delivery
-      const { error } = await supabase.from('call_signals').insert({
+      await supabase.from('call_signals').insert({
         chat_id: this.chatId,
         from_user_id: signal.from,
         to_user_id: signal.to,
@@ -277,16 +273,12 @@ export class WebRTCHandler {
         signal_data: signal.data || null,
         created_at: signal.timestamp,
       })
-
-      if (error) {
-        console.error('Error sending signal:', error)
-      }
     } catch (error) {
       console.error('Error sending signal:', error)
     }
   }
 
-  async toggleMute() {
+  toggleMute() {
     if (this.localStream) {
       this.localStream.getAudioTracks().forEach((track) => {
         track.enabled = !track.enabled
@@ -294,7 +286,7 @@ export class WebRTCHandler {
     }
   }
 
-  async toggleVideo() {
+  toggleVideo() {
     if (this.localStream) {
       this.localStream.getVideoTracks().forEach((track) => {
         track.enabled = !track.enabled
@@ -303,27 +295,27 @@ export class WebRTCHandler {
   }
 
   async endCall() {
-    // Send end signal
-    if (this.otherUserId) {
+    console.log('📞 Ending call...')
+    
+    // Notify others
+    for (const otherUserId of this.peerConnections.keys()) {
       await this.sendSignal({
         type: 'call-end',
         from: this.userId,
-        to: this.otherUserId,
+        to: otherUserId,
         timestamp: new Date().toISOString(),
       })
     }
 
-    // Stop all tracks
+    // Cleanup all peers
+    for (const userId of Array.from(this.peerConnections.keys())) {
+      this.removePeer(userId)
+    }
+
     if (this.localStream) {
       this.localStream.getTracks().forEach((track) => track.stop())
     }
 
-    // Close peer connection
-    if (this.peerConnection) {
-      this.peerConnection.close()
-    }
-
-    // Unsubscribe from channel
     if (this.channel) {
       await supabase.removeChannel(this.channel)
     }
@@ -335,8 +327,7 @@ export class WebRTCHandler {
     return this.localStream
   }
 
-  getRemoteStream() {
-    return this.remoteStream
+  getRemoteStreams() {
+    return this.remoteStreams
   }
 }
-

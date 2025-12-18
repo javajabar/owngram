@@ -12,7 +12,7 @@ interface CallModalProps {
   onAccept?: () => void
   onReject: () => void
   localStream: MediaStream | null
-  remoteStream: MediaStream | null
+  remoteStreams: Map<string, MediaStream>
   isMuted: boolean
   isVideoEnabled: boolean
   onToggleMute: () => void
@@ -28,7 +28,7 @@ export function CallModal({
   onAccept,
   onReject,
   localStream,
-  remoteStream,
+  remoteStreams,
   isMuted,
   isVideoEnabled,
   onToggleMute,
@@ -36,52 +36,58 @@ export function CallModal({
   callStartTime,
 }: CallModalProps) {
   const localVideoRef = useRef<HTMLVideoElement>(null)
-  const remoteVideoRef = useRef<HTMLVideoElement>(null)
-  const remoteAudioRef = useRef<HTMLAudioElement>(null)
+  const [remoteUserProfiles, setRemoteUserProfiles] = useState<Map<string, Profile>>(new Map())
   const [callDuration, setCallDuration] = useState<string>('00:00')
 
+  // Refs for remote audio elements (to handle autoplay)
+  const audioRefs = useRef<Map<string, HTMLAudioElement>>(new Map())
+
+  // Fetch profiles for all remote participants
+  useEffect(() => {
+    const fetchProfiles = async () => {
+      const newUserIds = Array.from(remoteStreams.keys()).filter(id => !remoteUserProfiles.has(id))
+      if (newUserIds.length === 0) return
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', newUserIds)
+
+      if (data) {
+        setRemoteUserProfiles(prev => {
+          const next = new Map(prev)
+          data.forEach(p => next.set(p.id, p as Profile))
+          return next
+        })
+      }
+    }
+
+    fetchProfiles()
+  }, [remoteStreams])
+
+  // Handle local video
   useEffect(() => {
     if (localVideoRef.current && localStream) {
       localVideoRef.current.srcObject = localStream
     }
   }, [localStream])
 
-  // Handle video stream
+  // Handle remote audio streams (required for autoplay policy)
   useEffect(() => {
-    if (remoteVideoRef.current && remoteStream) {
-      remoteVideoRef.current.srcObject = remoteStream
-      remoteVideoRef.current.play().catch(err => {
-        console.error('Error playing remote video:', err)
+    if (!isIncoming && callStartTime) {
+      remoteStreams.forEach((stream, userId) => {
+        const audioEl = audioRefs.current.get(userId)
+        if (audioEl && audioEl.srcObject !== stream) {
+          audioEl.srcObject = stream
+          audioEl.volume = 1.0
+          audioEl.muted = false
+          audioEl.play().catch(err => {
+            console.log(`⚠️ Audio autoplay blocked for user ${userId}:`, err)
+          })
+        }
       })
     }
-  }, [remoteStream])
-
-  // Handle audio stream separately (only when call is active, not incoming)
-  useEffect(() => {
-    if (!isIncoming && callStartTime && remoteStream && remoteAudioRef.current) {
-      // Create audio-only stream from remote stream
-      const audioTracks = remoteStream.getAudioTracks()
-      if (audioTracks.length > 0) {
-        const audioStream = new MediaStream(audioTracks)
-        remoteAudioRef.current.srcObject = audioStream
-        remoteAudioRef.current.volume = 1.0
-        remoteAudioRef.current.muted = false
-        
-        // Try to play audio (call is active, user has clicked accept)
-        remoteAudioRef.current.play().catch(err => {
-          console.log('⚠️ Audio autoplay blocked (will retry):', err)
-          // Retry after a short delay
-          setTimeout(() => {
-            if (remoteAudioRef.current) {
-              remoteAudioRef.current.play().catch(() => {
-                console.log('⚠️ Audio still blocked, user may need to interact')
-              })
-            }
-          }, 500)
-        })
-      }
-    }
-  }, [remoteStream, isIncoming, callStartTime])
+  }, [remoteStreams, isIncoming, callStartTime])
 
   // Timer for call duration
   useEffect(() => {
@@ -109,133 +115,161 @@ export function CallModal({
 
   if (!isOpen) return null
 
+  const remoteParticipants = Array.from(remoteStreams.entries())
+  const participantCount = remoteParticipants.length
+
+  // Determine grid layout based on participant count
+  const getGridClass = () => {
+    if (participantCount <= 1) return 'grid-cols-1'
+    if (participantCount <= 2) return 'grid-cols-1 md:grid-cols-2'
+    if (participantCount <= 4) return 'grid-cols-2'
+    return 'grid-cols-2 md:grid-cols-3'
+  }
+
   return (
-    <div className="fixed inset-0 bg-black/90 z-[100] flex items-center justify-center">
-      {/* Hidden audio element for remote audio stream */}
-      <audio
-        ref={remoteAudioRef}
-        autoPlay
-        playsInline
-        className="hidden"
-      />
-      
-      <div className="relative w-full h-full flex flex-col">
-        {/* Remote Video */}
-        <div className="flex-1 relative bg-gray-900">
-          {remoteStream ? (
-            <video
-              ref={remoteVideoRef}
-              autoPlay
-              playsInline
-              muted={false}
-              className="w-full h-full object-cover"
-            />
-          ) : (
-            <div className="w-full h-full flex items-center justify-center">
-              <div className="text-center">
-                <div className="w-32 h-32 rounded-full bg-gray-700 flex items-center justify-center mx-auto mb-4">
-                  {otherUser?.avatar_url ? (
-                    <img
-                      src={otherUser.avatar_url}
-                      alt={otherUser.full_name || 'User'}
-                      className="w-full h-full rounded-full object-cover"
-                    />
-                  ) : (
-                    <span className="text-white text-4xl font-bold">
-                      {(otherUser?.full_name?.[0] || otherUser?.username?.[0] || '?').toUpperCase()}
-                    </span>
-                  )}
-                </div>
-                <h3 className="text-white text-xl font-semibold mb-1">
-                  {otherUser?.full_name || otherUser?.username?.replace(/^@+/, '') || 'User'}
-                </h3>
-                {callStartTime ? (
-                  <p className="text-white text-lg font-medium">{callDuration}</p>
-                ) : isIncoming ? (
-                  <p className="text-gray-400">Входящий звонок...</p>
+    <div className="fixed inset-0 bg-black/95 z-[100] flex flex-col">
+      {/* Remote participants grid */}
+      <div className={`flex-1 grid ${getGridClass()} gap-2 p-4 overflow-auto`}>
+        {participantCount === 0 ? (
+          <div className="flex items-center justify-center h-full w-full">
+            <div className="text-center">
+              <div className="w-32 h-32 rounded-full bg-gray-800 flex items-center justify-center mx-auto mb-4 border-2 border-blue-500/20">
+                {otherUser?.avatar_url ? (
+                  <img src={otherUser.avatar_url} alt="User" className="w-full h-full rounded-full object-cover" />
                 ) : (
-                  <p className="text-gray-400">Звонок...</p>
+                  <span className="text-white text-4xl font-bold">
+                    {(otherUser?.full_name?.[0] || otherUser?.username?.[0] || '?').toUpperCase()}
+                  </span>
                 )}
               </div>
+              <h3 className="text-white text-xl font-semibold mb-1">
+                {otherUser?.full_name || otherUser?.username?.replace(/^@+/, '') || 'User'}
+              </h3>
+              <p className="text-blue-400 animate-pulse">
+                {isIncoming ? 'Входящий звонок...' : 'Ожидание ответа...'}
+              </p>
             </div>
-          )}
-        </div>
+          </div>
+        ) : (
+          remoteParticipants.map(([userId, stream]) => {
+            const profile = remoteUserProfiles.get(userId)
+            return (
+              <div key={userId} className="relative bg-gray-900 rounded-2xl overflow-hidden group">
+                <VideoElement stream={stream} />
+                <audio
+                  ref={el => { if (el) audioRefs.current.set(userId, el) }}
+                  autoPlay
+                  playsInline
+                  className="hidden"
+                />
+                <div className="absolute bottom-4 left-4 bg-black/50 backdrop-blur-md px-3 py-1 rounded-lg flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-green-500" />
+                  <span className="text-white text-sm font-medium">
+                    {profile?.full_name || profile?.username?.replace(/^@+/, '') || 'User'}
+                  </span>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
 
-        {/* Local Video (Picture-in-Picture) */}
-        {localStream && isVideoEnabled && (
-          <div className="absolute top-4 right-4 w-48 h-64 rounded-lg overflow-hidden bg-gray-800 border-2 border-white/20">
-            <video
-              ref={localVideoRef}
-              autoPlay
-              playsInline
-              muted
-              className="w-full h-full object-cover"
-            />
+      {/* Local Video (Floating) */}
+      {localStream && isVideoEnabled && (
+        <div className="absolute top-6 right-6 w-40 md:w-56 aspect-[3/4] rounded-2xl overflow-hidden bg-gray-800 border-2 border-white/10 shadow-2xl z-50">
+          <video
+            ref={localVideoRef}
+            autoPlay
+            playsInline
+            muted
+            className="w-full h-full object-cover scale-x-[-1]"
+          />
+          <div className="absolute bottom-3 left-3 bg-black/40 backdrop-blur-sm px-2 py-0.5 rounded text-[10px] text-white font-medium">
+            Вы
+          </div>
+        </div>
+      )}
+
+      {/* Header with timer */}
+      {callStartTime && (
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-50">
+          <div className="bg-black/40 backdrop-blur-md px-4 py-1.5 rounded-full border border-white/10 flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+            <span className="text-white font-mono font-medium">{callDuration}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Controls Footer */}
+      <div className="p-8 flex items-center justify-center gap-6 z-50">
+        {isIncoming ? (
+          <>
+            <button
+              onClick={onReject}
+              className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-all hover:scale-110 active:scale-95 shadow-xl"
+            >
+              <PhoneOff className="w-8 h-8 text-white" />
+            </button>
+            {onAccept && (
+              <button
+                onClick={onAccept}
+                className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-600 flex items-center justify-center transition-all hover:scale-110 active:scale-95 shadow-xl animate-bounce"
+              >
+                <Phone className="w-8 h-8 text-white" />
+              </button>
+            )}
+          </>
+        ) : (
+          <div className="flex items-center gap-4 bg-gray-800/50 backdrop-blur-xl p-4 rounded-3xl border border-white/5">
+            <button
+              onClick={onToggleVideo}
+              className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all hover:scale-105 active:scale-95 ${
+                isVideoEnabled ? 'bg-gray-700/50 hover:bg-gray-600/50 text-white' : 'bg-red-500/80 text-white'
+              }`}
+            >
+              {isVideoEnabled ? <Video className="w-6 h-6" /> : <VideoOff className="w-6 h-6" />}
+            </button>
+            <button
+              onClick={onToggleMute}
+              className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all hover:scale-105 active:scale-95 ${
+                !isMuted ? 'bg-gray-700/50 hover:bg-gray-600/50 text-white' : 'bg-red-500/80 text-white'
+              }`}
+            >
+              {!isMuted ? <Mic className="w-6 h-6" /> : <MicOff className="w-6 h-6" />}
+            </button>
+            <div className="w-px h-10 bg-white/10 mx-2" />
+            <button
+              onClick={onReject}
+              className="w-14 h-14 rounded-2xl bg-red-500 hover:bg-red-600 flex items-center justify-center transition-all hover:scale-105 active:scale-95 text-white shadow-lg shadow-red-500/20"
+            >
+              <PhoneOff className="w-6 h-6" />
+            </button>
           </div>
         )}
-
-        {/* Controls */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex items-center gap-4">
-          {isIncoming ? (
-            <>
-              <button
-                onClick={onReject}
-                className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors shadow-lg"
-              >
-                <PhoneOff className="w-8 h-8 text-white" />
-              </button>
-              {onAccept && (
-                <button
-                  onClick={() => {
-                    // Accept call immediately - don't wait for audio
-                    onAccept()
-                    // Audio will be played separately in useEffect when call is active
-                  }}
-                  className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-600 flex items-center justify-center transition-colors shadow-lg"
-                >
-                  <Phone className="w-8 h-8 text-white" />
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              <button
-                onClick={onToggleVideo}
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors shadow-lg ${
-                  isVideoEnabled
-                    ? 'bg-gray-700 hover:bg-gray-600'
-                    : 'bg-red-500 hover:bg-red-600'
-                }`}
-              >
-                {isVideoEnabled ? (
-                  <Video className="w-6 h-6 text-white" />
-                ) : (
-                  <VideoOff className="w-6 h-6 text-white" />
-                )}
-              </button>
-              <button
-                onClick={onToggleMute}
-                className={`w-14 h-14 rounded-full flex items-center justify-center transition-colors shadow-lg ${
-                  isMuted ? 'bg-red-500 hover:bg-red-600' : 'bg-gray-700 hover:bg-gray-600'
-                }`}
-              >
-                {isMuted ? (
-                  <MicOff className="w-6 h-6 text-white" />
-                ) : (
-                  <Mic className="w-6 h-6 text-white" />
-                )}
-              </button>
-              <button
-                onClick={onReject}
-                className="w-16 h-16 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center transition-colors shadow-lg"
-              >
-                <PhoneOff className="w-8 h-8 text-white" />
-              </button>
-            </>
-          )}
-        </div>
       </div>
     </div>
   )
+}
+
+// Sub-component for individual video streams to handle their own refs
+function VideoElement({ stream }: { stream: MediaStream }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream
+      videoRef.current.play().catch(console.error)
+    }
+  }, [stream])
+
+  return (
+    <video
+      ref={videoRef}
+      autoPlay
+      playsInline
+      className="w-full h-full object-cover"
+    />
+  )
+}
 }
 

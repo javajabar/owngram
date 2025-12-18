@@ -62,7 +62,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [isInCall, setIsInCall] = useState(false)
   const [callStartTime, setCallStartTime] = useState<number | null>(null)
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
-  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [remoteStreams, setRemoteStreams] = useState<Map<string, MediaStream>>(new Map())
   const [isMuted, setIsMuted] = useState(false)
   const [isVideoEnabled, setIsVideoEnabled] = useState(true)
   const webrtcHandlerRef = useRef<WebRTCHandler | null>(null)
@@ -477,54 +477,69 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       webrtcHandlerRef.current = null
     }
 
-      setIsCalling(false)
-      setIncomingCall(false)
-      setIsInCall(false)
-      setCallStartTime(null)
-      setLocalStream(null)
-      setRemoteStream(null)
+    setIsCalling(false)
+    setIncomingCall(false)
+    setIsInCall(false)
+    setCallStartTime(null)
+    setLocalStream(null)
+    setRemoteStreams(new Map())
     setIsMuted(false)
     setIsVideoEnabled(true)
   }
 
   const handleStartCall = async () => {
-    if (!user || !otherUser || !chatId || chat?.type !== 'dm') return
+    if (!user || !chatId) return
 
     try {
-      console.log('📞 Starting call to:', otherUser.id, 'in chat:', chatId)
+      console.log('📞 Starting call in chat:', chatId)
       setIsCalling(true)
       // Start ringing sound (will repeat until answered/rejected)
       soundManager.startCallRinging()
       
-      // Send call request
-      const { data, error } = await supabase.from('call_signals').insert({
-        chat_id: chatId,
-        from_user_id: user.id,
-        to_user_id: otherUser.id,
-        signal_type: 'call-request',
-        created_at: new Date().toISOString(),
-      }).select()
-
-      if (error) {
-        console.error('❌ Error sending call request:', error)
-        alert('Ошибка при отправке звонка: ' + error.message)
-        setIsCalling(false)
-        return
+      // If it's a DM, send direct call request
+      if (chat?.type === 'dm' && otherUser) {
+        await supabase.from('call_signals').insert({
+          chat_id: chatId,
+          from_user_id: user.id,
+          to_user_id: otherUser.id,
+          signal_type: 'call-request',
+          created_at: new Date().toISOString(),
+        })
       }
 
-      console.log('✅ Call request sent successfully:', data)
-
-      // Initialize WebRTC as initiator
+      // Initialize WebRTC
       const handler = new WebRTCHandler(
         user.id,
-        otherUser.id,
         chatId,
-        (stream) => setRemoteStream(stream),
+        (userId, stream) => {
+          console.log('📥 Remote stream received from:', userId)
+          setRemoteStreams(prev => {
+            const next = new Map(prev)
+            next.set(userId, stream)
+            return next
+          })
+        },
+        (userId) => {
+          console.log('🧹 Remote stream removed from:', userId)
+          setRemoteStreams(prev => {
+            const next = new Map(prev)
+            next.delete(userId)
+            return next
+          })
+        },
         handleEndCall
       )
       webrtcHandlerRef.current = handler
-      const stream = await handler.initialize(true)
+      const stream = await handler.initialize()
       setLocalStream(stream)
+      
+      // If group, joining is enough (Presence will trigger handshakes)
+      if (chat?.type === 'group') {
+        setIsInCall(true)
+        setIsCalling(false)
+        setCallStartTime(Date.now())
+        soundManager.stopCallRinging()
+      }
     } catch (error) {
       console.error('Error starting call:', error)
       alert('Не удалось начать звонок. Проверьте разрешения на камеру и микрофон.')
@@ -533,7 +548,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   }
 
   const handleAcceptCall = async () => {
-    if (!user || !otherUser || !chatId) return
+    if (!user || !chatId) return
 
     // IMMEDIATELY change state - don't wait for anything
     setIsInCall(true)
@@ -546,29 +561,41 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     soundManager.playCallAnswered()
 
     try {
-      // Send call accept
-      await supabase.from('call_signals').insert({
-        chat_id: chatId,
-        from_user_id: user.id,
-        to_user_id: otherUser.id,
-        signal_type: 'call-accept',
-        created_at: new Date().toISOString(),
-      })
+      // If DM, send call accept
+      if (chat?.type === 'dm' && otherUser) {
+        await supabase.from('call_signals').insert({
+          chat_id: chatId,
+          from_user_id: user.id,
+          to_user_id: otherUser.id,
+          signal_type: 'call-accept',
+          created_at: new Date().toISOString(),
+        })
+      }
 
-      // Initialize WebRTC as answerer (async, but state is already changed)
+      // Initialize WebRTC
       const handler = new WebRTCHandler(
         user.id,
-        otherUser.id,
         chatId,
-        (stream) => {
-          console.log('📥 Remote stream received in ChatWindow:', stream)
-          setRemoteStream(stream)
-          // Audio will be played by CallModal useEffect when call is active
+        (userId, stream) => {
+          console.log('📥 Remote stream received from:', userId)
+          setRemoteStreams(prev => {
+            const next = new Map(prev)
+            next.set(userId, stream)
+            return next
+          })
+        },
+        (userId) => {
+          console.log('🧹 Remote stream removed from:', userId)
+          setRemoteStreams(prev => {
+            const next = new Map(prev)
+            next.delete(userId)
+            return next
+          })
         },
         handleEndCall
       )
       webrtcHandlerRef.current = handler
-      const stream = await handler.initialize(false)
+      const stream = await handler.initialize()
       setLocalStream(stream)
     } catch (error) {
       console.error('Error accepting call:', error)
@@ -735,14 +762,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           // WebRTC signals (offer, answer, ice-candidate) should be passed to WebRTCHandler
           const isWebRTCSignal = (signal.signal_type === 'offer' || signal.signal_type === 'answer' || signal.signal_type === 'ice-candidate') &&
             webrtcHandlerRef.current &&
-            (signalFrom === otherUserStr || signalTo === currentUserStr)
-          
-          // Only process call signals for DM chats (skip for groups)
-          // If chat is not loaded yet, allow processing (it will be checked when chat loads)
-          if (chat && chat.type !== 'dm') {
-            console.log('⏭️ Skipping call signal - not a DM chat:', chat.type)
-            return
-          }
+            (signalTo === currentUserStr)
           
           if (isCallAcceptForMe || isCallRejectForMe || isWebRTCSignal) {
             console.log('✅ Signal is for me! Processing...', { 
@@ -766,21 +786,18 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 setCallStartTime(Date.now())
                 // Play call answered sound
                 soundManager.playCallAnswered()
-                // Handler already exists from handleStartCall, WebRTC should already be initialized
-                // The remote stream will come through the ontrack event
-                console.log('✅ WebRTC handler already initialized, waiting for remote stream...')
               }
             } else if (signal.signal_type === 'call-reject' || signal.signal_type === 'call-end') {
               console.log('❌ Call rejected/ended')
               // Stop ringing sound
               soundManager.stopCallRinging()
-              handleEndCall()
-            } else if (isWebRTCSignal && webrtcHandlerRef.current) {
-              // Pass WebRTC signals to handler (it will process them internally)
-              console.log('📡 WebRTC signal received, passing to handler:', signal.signal_type)
-              // The WebRTCHandler has its own subscription, but we can also pass signals here
-              // Actually, WebRTCHandler should handle this via its own subscription
-              // But if it's not working, we can manually trigger it
+              
+              // If it's a DM, end the whole thing. If group, maybe just one person left.
+              if (chat?.type === 'dm') {
+                handleEndCall()
+              } else {
+                // For groups, WebRTCHandler will handle peer removal internally via its own listener
+              }
             }
           } else {
             console.log('⏭️ Signal is not for me, ignoring', {
@@ -1406,7 +1423,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         onAccept={handleAcceptCall}
         onReject={handleRejectCall}
         localStream={localStream}
-        remoteStream={remoteStream}
+        remoteStreams={remoteStreams}
         isMuted={isMuted}
         isVideoEnabled={isVideoEnabled}
         onToggleMute={handleToggleMute}
