@@ -865,7 +865,9 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     const { error } = await supabase.from('messages').insert({
       chat_id: chatId,
       sender_id: user.id,
-      content: status === 'completed' ? `Звонок (${Math.floor(duration / 60000)} мин)` : 'Звонок',
+      content: status === 'completed' ? `Звонок завершен (${Math.floor(duration / 60)} мин ${duration % 60} сек)` : 
+               status === 'missed' ? 'Пропущенный звонок' :
+               status === 'rejected' ? 'Отклоненный звонок' : 'Звонок',
       type: 'call',
       call_info: callInfo,
       created_at: new Date().toISOString(),
@@ -883,14 +885,6 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     // Play call ended sound
     soundManager.playCallEnded()
     
-    // Only insert message if we were actually in a call or initiated one
-    if (isInCall && callStartTime) {
-      const duration = Date.now() - callStartTime
-      await insertCallMessage('completed', duration)
-    } else if (isCalling) {
-      await insertCallMessage('cancelled')
-    }
-
     if (webrtcHandlerRef.current) {
       await webrtcHandlerRef.current.endCall()
       webrtcHandlerRef.current = null
@@ -1038,7 +1032,6 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       created_at: new Date().toISOString(),
     })
 
-    await insertCallMessage('rejected')
     handleEndCall()
   }
 
@@ -1203,12 +1196,19 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               // Stop ringing sound
               soundManager.stopCallRinging()
               
-              // Insert message if we were calling and it was rejected
-              if (refIsCalling && signal.signal_type === 'call-reject') {
-                await insertCallMessage('rejected')
-              } else if (refIncomingCall && signal.signal_type === 'call-end') {
-                // If caller ended before we answered
-                await insertCallMessage('missed')
+              // ONLY the receiver of the signal inserts the message to avoid duplicates
+              if (signalFrom !== currentUserStr) {
+                if (refIsCalling && signal.signal_type === 'call-reject') {
+                  // Caller receives reject
+                  await insertCallMessage('rejected')
+                } else if (refIncomingCall && signal.signal_type === 'call-end') {
+                  // Receiver receives cancel from caller
+                  await insertCallMessage('missed')
+                } else if (refIsInCall && signal.signal_type === 'call-end' && callStartTime) {
+                  // Someone hangs up during call
+                  const duration = Date.now() - callStartTime
+                  await insertCallMessage('completed', duration)
+                }
               }
               
               // If it's a DM, end the whole thing. If group, maybe just one person left.

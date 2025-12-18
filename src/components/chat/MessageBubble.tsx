@@ -62,6 +62,7 @@ export function MessageBubble({
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
   const [showAllReactions, setShowAllReactions] = useState(false)
+  const hasReactions = message.reactions && Object.keys(message.reactions).length > 0
   
   const voiceAttachment = message.attachments?.find((a: any) => a.type === 'voice')
 
@@ -273,6 +274,9 @@ export function MessageBubble({
             message.attachments?.some((a: any) => a.type === 'image')
                 ? "max-w-[155px] px-0 py-0 shadow-sm relative text-sm inline-flex flex-col gap-1.5 transition-all duration-200 ease-out"
                 : "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex flex-col gap-1.5 transition-all duration-200 ease-out",
+            hasReactions && !message.attachments?.some((a: any) => a.type === 'image') && message.type !== 'call'
+                ? "min-w-[95px] pb-3.5" 
+                : "",
             message.deleted_at && message.deleted_for_all
                 ? "opacity-50 italic"
                 : "",
@@ -636,10 +640,10 @@ export function MessageBubble({
         </div>
 
         {/* Reactions Display - Positioned ABSOLUTE to raise them and overlap bubble */}
-        {message.reactions && Object.keys(message.reactions).length > 0 && (
+        {hasReactions && (
           <div className={cn(
-            "absolute z-10 flex flex-wrap gap-1 bottom-[-12px]",
-            isMe ? "right-2 justify-end" : "left-2 justify-start"
+            "absolute z-10 flex flex-wrap gap-1 bottom-[-10px]",
+            isMe ? "right-1 justify-end" : "left-1 justify-start"
           )}>
             {Object.entries(message.reactions).slice(0, showAllReactions ? undefined : 5).map(([emoji, userIds]) => (
               <button
