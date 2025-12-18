@@ -24,6 +24,7 @@ export interface Message {
   reply_to?: Message | null // The message being replied to
   deleted_at?: string | null // Timestamp when message was deleted
   deleted_for_all?: boolean // Whether message was deleted for everyone
+  status?: 'sending' | 'sent' | 'error' // For optimistic UI
 }
 
 export interface Chat {

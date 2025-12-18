@@ -12,6 +12,7 @@ import { ImageViewer } from '@/components/ImageViewer'
 import { CallModal } from './CallModal'
 import { soundManager } from '@/lib/sounds'
 import { WebRTCHandler } from '@/lib/webrtc'
+import { profileCache } from '@/lib/cache'
 
 // Format last seen time
 function formatLastSeen(dateStr: string): string {
@@ -57,6 +58,12 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [showSearch, setShowSearch] = useState(false)
   const [viewingImage, setViewingImage] = useState<string | null>(null)
   const [viewingAvatar, setViewingAvatar] = useState<string | null>(null)
+  
+  // Pagination State
+  const [hasMore, setHasMore] = useState(true)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const MESSAGES_PER_PAGE = 50
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [isCalling, setIsCalling] = useState(false)
   const [incomingCall, setIncomingCall] = useState(false)
   const [isInCall, setIsInCall] = useState(false)
@@ -257,37 +264,36 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           }
       })
 
-    // Fetch Messages (use simple query to avoid foreign key relationship errors)
-    supabase.from('messages')
-      .select('*, sender:profiles(*)')
-      .eq('chat_id', chatId)
-      .order('created_at', { ascending: true })
-      .then(({ data, error }) => {
-        if (error) {
-          console.error('Error fetching messages:', error)
-          setMessages([])
-          return
-        }
+    // Fetch Messages
+    const fetchInitialMessages = async () => {
+      setHasMore(true)
+      const { data, error } = await supabase.from('messages')
+        .select('*, sender:profiles(*)')
+        .eq('chat_id', chatId)
+        .order('created_at', { ascending: false }) // Get latest first for pagination
+        .limit(MESSAGES_PER_PAGE)
+      
+      if (error) {
+        console.error('Error fetching messages:', error)
+        setMessages([])
+        return
+      }
+      
+      if (data) {
+        const mappedMessages = data
+          .filter((msg: any) => !(msg.deleted_at && msg.deleted_for_all))
+          .map((msg: any) => ({ ...msg, reply_to: null }))
+          .reverse() as Message[] // Reverse back to chronological order
         
-        if (data) {
-          // Filter out messages deleted for all and map messages
-          const mappedMessages = data
-            .filter((msg: any) => {
-              if (msg.deleted_at && msg.deleted_for_all) return false
-              return true
-            })
-            .map((msg: any) => ({
-              ...msg,
-              reply_to: null // Reply functionality can be implemented separately if needed
-            })) as Message[]
-          
-          console.log('Loaded messages:', mappedMessages.length, 'for chat:', chatId)
-          setMessages(mappedMessages)
-        } else {
-          console.log('No messages data returned for chat:', chatId)
-          setMessages([])
-        }
-      })
+        setMessages(mappedMessages)
+        setHasMore(data.length === MESSAGES_PER_PAGE)
+        
+        // Initial scroll to bottom
+        setTimeout(scrollToBottom, 100)
+      }
+    }
+
+    fetchInitialMessages()
 
     // Realtime
     const channel = supabase.channel(`chat:${chatId}`)
@@ -301,8 +307,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           // Skip deleted messages
           if (payload.new.deleted_at) return
           
-          // Fetch sender info and reply_to for the new message
-          const { data: senderData } = await supabase.from('profiles').select('*').eq('id', payload.new.sender_id).single()
+          // Fetch sender info from cache or DB
+          const senderData = await profileCache.fetch(payload.new.sender_id, supabase)
           let replyTo = null
           if (payload.new.reply_to_id) {
             const { data: replyData } = await supabase
@@ -312,15 +318,18 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               .single()
             replyTo = replyData as Message | null
           }
-          const newMsg = { ...payload.new, sender: senderData, reply_to: replyTo } as Message
+          const newMsg = { ...payload.new, sender: senderData, reply_to: replyTo, status: 'sent' } as Message
           setMessages(prev => {
-              // Deduplicate
-              if (prev.find(m => m.id === newMsg.id)) {
-                console.log('Message already exists, skipping:', newMsg.id)
-                return prev
+              const existingIndex = prev.findIndex(m => m.id === newMsg.id)
+              
+              if (existingIndex !== -1) {
+                console.log('✅ Updating optimistic message with server data:', newMsg.id)
+                const updated = [...prev]
+                updated[existingIndex] = { ...updated[existingIndex], ...newMsg }
+                return updated
               }
               
-              console.log('Adding new message to list:', newMsg.id)
+              console.log('➕ Adding new message to list:', newMsg.id)
               
               // If I'm the sender, just update the existing optimistic message (if we had one) or add new
               // If I'm NOT the sender, mark as read immediately since I'm looking at the chat
@@ -871,6 +880,55 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     }
   }, [chatId, user?.id, chat?.type])
 
+  const loadMoreMessages = async () => {
+    if (!hasMore || isLoadingMore || !messages.length) return
+    
+    setIsLoadingMore(true)
+    const oldestMsg = messages[0]
+    const scrollContainer = scrollContainerRef.current
+    const previousScrollHeight = scrollContainer?.scrollHeight || 0
+
+    try {
+      const { data, error } = await supabase.from('messages')
+        .select('*, sender:profiles(*)')
+        .eq('chat_id', chatId)
+        .lt('created_at', oldestMsg.created_at)
+        .order('created_at', { ascending: false })
+        .limit(MESSAGES_PER_PAGE)
+
+      if (error) throw error
+
+      if (data && data.length > 0) {
+        const olderMessages = data
+          .filter((msg: any) => !(msg.deleted_at && msg.deleted_for_all))
+          .map((msg: any) => ({ ...msg, reply_to: null }))
+          .reverse() as Message[]
+
+        setMessages(prev => [...olderMessages, ...prev])
+        setHasMore(data.length === MESSAGES_PER_PAGE)
+        
+        // Restore scroll position
+        setTimeout(() => {
+          if (scrollContainer) {
+            scrollContainer.scrollTop = scrollContainer.scrollHeight - previousScrollHeight
+          }
+        }, 0)
+      } else {
+        setHasMore(false)
+      }
+    } catch (err) {
+      console.error('Error loading more messages:', err)
+    } finally {
+      setIsLoadingMore(false)
+    }
+  }
+
+  const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
+    if (e.currentTarget.scrollTop === 0 && hasMore && !isLoadingMore) {
+      loadMoreMessages()
+    }
+  }
+
   const markAsRead = async (messageId: string) => {
       try {
           await supabase
@@ -1020,20 +1078,54 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     }
 
     // Create new message
-    setNewMessage('') // Optimistic clear
-    setReplyingTo(null)
-
-    const { error } = await supabase.from('messages').insert({
+    const tempId = crypto.randomUUID()
+    const optimisticMessage: Message = {
+      id: tempId,
       chat_id: chatId,
       sender_id: user.id,
       content: text,
+      created_at: new Date().toISOString(),
+      attachments: null,
+      delivered_at: null,
+      read_at: null,
       reply_to_id: replyingTo?.id || null,
-      delivered_at: new Date().toISOString() // Сообщение доставлено сразу (1 галочка)
-    })
+      reply_to: replyingTo,
+      status: 'sending'
+    }
 
-    if (error) {
-        console.error('Error sending:', error)
-        setNewMessage(text) // Restore on error
+    // Add optimistically to UI
+    setMessages(prev => [...prev, optimisticMessage])
+    setNewMessage('') 
+    setReplyingTo(null)
+    
+    // Scroll to bottom immediately
+    setTimeout(scrollToBottom, 50)
+
+    try {
+      const { error, data } = await supabase.from('messages').insert({
+        id: tempId,
+        chat_id: chatId,
+        sender_id: user.id,
+        content: text,
+        reply_to_id: replyingTo?.id || null,
+        delivered_at: new Date().toISOString()
+      }).select().single()
+
+      if (error) throw error
+      
+      // Update status to 'sent' if successful
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempId ? { ...msg, status: 'sent' as const } : msg
+      ))
+      
+      // Play sound
+      soundManager.playMessageSent()
+    } catch (error) {
+      console.error('Error sending:', error)
+      // Mark as error in UI
+      setMessages(prev => prev.map(msg => 
+        msg.id === tempId ? { ...msg, status: 'error' as const } : msg
+      ))
     }
   }
 
@@ -1207,8 +1299,17 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-3 py-2 scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent">
+      <div 
+        ref={scrollContainerRef}
+        onScroll={handleScroll}
+        className="flex-1 overflow-y-auto px-3 py-2 scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent"
+      >
         <div className="flex flex-col justify-end min-h-full">
+            {isLoadingMore && (
+              <div className="flex justify-center py-2 shrink-0">
+                <div className="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
             {!showSearch && messages.length === 0 && (
                 <div className="text-center text-gray-400 py-10">No messages yet. Say hi!</div>
             )}

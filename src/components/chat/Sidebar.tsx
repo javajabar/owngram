@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/useAuthStore'
 import { Plus, Settings, LogOut, User as UserIcon, Search, Trash2, X, MoreVertical } from 'lucide-react'
 import { soundManager } from '@/lib/sounds'
+import { profileCache } from '@/lib/cache'
 
 export function Sidebar() {
     const [chats, setChats] = useState<Chat[]>([])
@@ -15,7 +16,7 @@ export function Sidebar() {
   const [searchQuery, setSearchQuery] = useState('')
   const [isSearching, setIsSearching] = useState(false)
   const [globalSearchQuery, setGlobalSearchQuery] = useState('')
-  const [globalSearchResults, setGlobalSearchResults] = useState<any[]>([])
+  const [globalSearchResults, setGlobalSearchResults] = useState<Message[]>([])
   const [isGlobalSearching, setIsGlobalSearching] = useState(false)
   const [showGlobalSearch, setShowGlobalSearch] = useState(false)
     const [deletingChatId, setDeletingChatId] = useState<string | null>(null)
@@ -88,6 +89,15 @@ export function Sidebar() {
             .from('chat_members')
             .select('chat_id, user_id, profiles(*)')
             .in('chat_id', chatIds)
+        
+        // Populate profile cache
+        if (allMembers) {
+          allMembers.forEach(m => {
+            if (m.profiles) {
+              profileCache.set(m.user_id, m.profiles as Profile)
+            }
+          })
+        }
 
         // Fetch unread counts using a single query (all unread messages for these chats not by me)
         const { data: unreadMessages } = await supabase
@@ -110,10 +120,10 @@ export function Sidebar() {
             unreadCountMap.set(m.chat_id, (unreadCountMap.get(m.chat_id) || 0) + 1)
         })
 
-        const lastMessageMap = new Map<string, any>()
+        const lastMessageMap = new Map<string, Message>()
         lastMessages?.forEach(m => {
             if (!lastMessageMap.has(m.chat_id)) {
-                lastMessageMap.set(m.chat_id, m)
+                lastMessageMap.set(m.chat_id, m as Message)
             }
         })
 

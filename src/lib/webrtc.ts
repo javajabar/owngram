@@ -175,6 +175,65 @@ export class WebRTCHandler {
   private subscribeToSignals() {
     this.channel = supabase
       .channel(`webrtc-${this.chatId}`)
+      .on('broadcast', { event: 'signal' }, async ({ payload }) => {
+        const signal = payload as CallSignal
+        if (signal.to !== this.userId) return
+
+        console.log('🔊 [WebRTC 2.0] Received broadcast signal:', signal.type, 'from:', signal.from)
+        
+        const fromUserId = signal.from
+        const signalData = signal.data
+
+        switch (signal.type) {
+          case 'offer':
+            const pcOffer = this.createPeerConnection(fromUserId, false)
+            await pcOffer.setRemoteDescription(new RTCSessionDescription(signalData))
+            
+            const offerQueue = this.iceCandidateQueues.get(fromUserId) || []
+            while (offerQueue.length > 0) {
+              const cand = offerQueue.shift()
+              if (cand) await pcOffer.addIceCandidate(new RTCIceCandidate(cand))
+            }
+            this.iceCandidateQueues.delete(fromUserId)
+
+            const answer = await pcOffer.createAnswer()
+            await pcOffer.setLocalDescription(answer)
+            this.sendSignal({
+              type: 'answer',
+              from: this.userId,
+              to: fromUserId,
+              data: answer,
+              timestamp: new Date().toISOString(),
+            })
+            break
+
+          case 'answer':
+            const pcAnswer = this.peerConnections.get(fromUserId)
+            if (pcAnswer) {
+              await pcAnswer.setRemoteDescription(new RTCSessionDescription(signalData))
+              
+              const answerQueue = this.iceCandidateQueues.get(fromUserId) || []
+              while (answerQueue.length > 0) {
+                const cand = answerQueue.shift()
+                if (cand) await pcAnswer.addIceCandidate(new RTCIceCandidate(cand))
+              }
+              this.iceCandidateQueues.delete(fromUserId)
+            }
+            break
+
+          case 'ice-candidate':
+            const pcIce = this.peerConnections.get(fromUserId)
+            if (pcIce && pcIce.remoteDescription) {
+              await pcIce.addIceCandidate(new RTCIceCandidate(signalData))
+            } else {
+              if (!this.iceCandidateQueues.has(fromUserId)) {
+                this.iceCandidateQueues.set(fromUserId, [])
+              }
+              this.iceCandidateQueues.get(fromUserId)!.push(signalData)
+            }
+            break
+        }
+      })
       .on(
         'postgres_changes',
         {
@@ -189,7 +248,14 @@ export class WebRTCHandler {
           // Only process signals for us
           if (signal.to_user_id !== this.userId) return
 
-          console.log('🔊 WebRTCHandler received signal:', signal.signal_type, 'from:', signal.from_user_id)
+          // Ignore technical signals if they come from DB (WebRTC 2.0 uses Broadcast)
+          const isTechnical = ['offer', 'answer', 'ice-candidate'].includes(signal.signal_type)
+          if (isTechnical) {
+            console.log('⏭️ [WebRTC 2.0] Ignoring technical signal from DB:', signal.signal_type)
+            return
+          }
+
+          console.log('🔊 WebRTCHandler received session signal:', signal.signal_type, 'from:', signal.from_user_id)
 
           const fromUserId = signal.from_user_id
           const signalData = signal.signal_data
@@ -289,14 +355,32 @@ export class WebRTCHandler {
 
   private async sendSignal(signal: CallSignal) {
     try {
-      await supabase.from('call_signals').insert({
-        chat_id: this.chatId,
-        from_user_id: signal.from,
-        to_user_id: signal.to,
-        signal_type: signal.type,
-        signal_data: signal.data || null,
-        created_at: signal.timestamp,
-      })
+      // Use Broadcast for technical signals (offer, answer, ice-candidate)
+      // and Database for session signals (call-request, call-accept, etc.)
+      const isTechnical = ['offer', 'answer', 'ice-candidate'].includes(signal.type)
+
+      if (isTechnical && this.channel) {
+        console.log('📡 [WebRTC 2.0] Sending broadcast signal:', signal.type)
+        await this.channel.send({
+          type: 'broadcast',
+          event: 'signal',
+          payload: {
+            ...signal,
+            from: this.userId,
+            to: signal.to
+          }
+        })
+      } else {
+        // Fallback or session signals go to DB
+        await supabase.from('call_signals').insert({
+          chat_id: this.chatId,
+          from_user_id: signal.from,
+          to_user_id: signal.to,
+          signal_type: signal.type,
+          signal_data: signal.data || null,
+          created_at: signal.timestamp,
+        })
+      }
     } catch (error) {
       console.error('Error sending signal:', error)
     }
