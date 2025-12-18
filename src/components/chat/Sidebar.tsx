@@ -557,7 +557,7 @@ export function Sidebar() {
                 .from('chat_members')
                 .select('chat_id')
                 .eq('chat_id', message.chat_id)
-                .eq('user_id', user.id)
+                .eq('user_id', currentUserId)
                 .maybeSingle()
             
             if (!memberCheck) return // Not a member, ignore
@@ -587,7 +587,7 @@ export function Sidebar() {
             }
             
             // Play sound and show notification if message is not from current user and not in current chat
-            if (fullMessage.sender_id !== user.id && fullMessage.chat_id !== currentPathChatId) {
+            if (fullMessage.sender_id !== currentUserId && fullMessage.chat_id !== currentPathChatId) {
                 playNotificationSound()
                 // Show browser notification only if page is not focused
                 if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
@@ -623,7 +623,7 @@ export function Sidebar() {
                 chat.lastMessage = fullMessage
                 
                 // Update unread count if not from me and not currently viewing
-                if (fullMessage.sender_id !== user.id && fullMessage.chat_id !== currentPathChatId) {
+                if (fullMessage.sender_id !== currentUserId && fullMessage.chat_id !== currentPathChatId) {
                     chat.unreadCount = (chat.unreadCount || 0) + 1
                 } else if (fullMessage.chat_id === currentPathChatId) {
                     // If viewing this chat, unread count should be 0
@@ -654,7 +654,7 @@ export function Sidebar() {
                 .from('chat_members')
                 .select('chat_id')
                 .eq('chat_id', updatedMessage.chat_id)
-                .eq('user_id', user.id)
+                .eq('user_id', currentUserId)
                 .maybeSingle()
             
             if (!memberCheck) return
