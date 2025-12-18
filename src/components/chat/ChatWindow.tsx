@@ -72,6 +72,10 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [isBlockedByMe, setIsBlockedByMe] = useState(false)
   const [isBlockingMe, setIsBlockingMe] = useState(false)
   
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
+  const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null)
+  
   // Pagination State
   const [hasMore, setHasMore] = useState(true)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
@@ -356,6 +360,56 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       return { ...c, displayName: name, displayAvatar: avatar }
     })
     setUserChats(processed || [])
+  }
+
+  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    const reader = new FileReader()
+    reader.onloadend = () => {
+      setAvatarPreview(reader.result as string)
+      setSelectedAvatarFile(file)
+    }
+    reader.readAsDataURL(file)
+  }
+
+  const handleUploadAvatar = async () => {
+    if (!selectedAvatarFile || !chatId) return
+
+    try {
+      setIsUploadingAvatar(true)
+      const fileExt = selectedAvatarFile.name.split('.').pop()
+      const fileName = `${chatId}-${Date.now()}.${fileExt}`
+      const filePath = `avatars/${fileName}`
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, selectedAvatarFile)
+
+      if (uploadError) throw uploadError
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath)
+
+      const { error: updateError } = await supabase
+        .from('chats')
+        .update({ avatar_url: publicUrl })
+        .eq('id', chatId)
+
+      if (updateError) throw updateError
+
+      setChat(prev => prev ? { ...prev, avatar_url: publicUrl } : null)
+      setAvatarPreview(null)
+      setSelectedAvatarFile(null)
+      alert('Фото группы обновлено!')
+    } catch (err: any) {
+      console.error('Error uploading group avatar:', err)
+      alert('Ошибка при загрузке фото: ' + err.message)
+    } finally {
+      setIsUploadingAvatar(false)
+    }
   }
 
   const handleAddReaction = async (messageId: string, emoji: string) => {
@@ -800,6 +854,28 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   }, [chatId, user])
 
   // Call handlers (defined before useEffect to avoid dependency issues)
+  const insertCallMessage = async (status: 'completed' | 'missed' | 'rejected' | 'cancelled', duration: number = 0) => {
+    if (!user || !chatId) return
+
+    const callInfo = {
+      status,
+      duration: Math.floor(duration / 1000) // convert ms to seconds
+    }
+
+    const { error } = await supabase.from('messages').insert({
+      chat_id: chatId,
+      sender_id: user.id,
+      content: status === 'completed' ? `Звонок (${Math.floor(duration / 60000)} мин)` : 'Звонок',
+      type: 'call',
+      call_info: callInfo,
+      created_at: new Date().toISOString(),
+    })
+
+    if (error) {
+      console.error('Error inserting call message:', error)
+    }
+  }
+
   const handleEndCall = async () => {
     // Stop ringing sound
     soundManager.stopCallRinging()
@@ -807,6 +883,14 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     // Play call ended sound
     soundManager.playCallEnded()
     
+    // Only insert message if we were actually in a call or initiated one
+    if (isInCall && callStartTime) {
+      const duration = Date.now() - callStartTime
+      await insertCallMessage('completed', duration)
+    } else if (isCalling) {
+      await insertCallMessage('cancelled')
+    }
+
     if (webrtcHandlerRef.current) {
       await webrtcHandlerRef.current.endCall()
       webrtcHandlerRef.current = null
@@ -954,6 +1038,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       created_at: new Date().toISOString(),
     })
 
+    await insertCallMessage('rejected')
     handleEndCall()
   }
 
@@ -1117,6 +1202,14 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               console.log('❌ Call rejected/ended')
               // Stop ringing sound
               soundManager.stopCallRinging()
+              
+              // Insert message if we were calling and it was rejected
+              if (refIsCalling && signal.signal_type === 'call-reject') {
+                await insertCallMessage('rejected')
+              } else if (refIncomingCall && signal.signal_type === 'call-end') {
+                // If caller ended before we answered
+                await insertCallMessage('missed')
+              }
               
               // If it's a DM, end the whole thing. If group, maybe just one person left.
               if (chat?.type === 'dm') {
@@ -1721,7 +1814,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       {/* Profile Modal */}
       {showProfile && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowProfile(false)}>
-            <div className="bg-white dark:bg-[#17212B] rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden transform transition-all border border-gray-100 dark:border-gray-800" onClick={e => e.stopPropagation()}>
+            <div className="bg-white dark:bg-[#17212B] rounded-[2.5rem] shadow-2xl w-full max-w-3xl overflow-hidden transform transition-all border border-gray-100 dark:border-gray-800" onClick={e => e.stopPropagation()}>
                 {/* Header with gradient */}
                 <div className="h-32 bg-gradient-to-br from-blue-500 via-purple-600 to-pink-500 relative rounded-t-[2.5rem]">
                     <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
@@ -1758,47 +1851,57 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                 <button 
                                     onClick={(e) => {
                                         e.stopPropagation()
-                                        const input = document.createElement('input')
-                                        input.type = 'file'
-                                        input.accept = 'image/*'
-                                        input.onchange = async (event: any) => {
-                                            const file = event.target.files?.[0]
-                                            if (!file || !chatId) return
-                                            
-                                            try {
-                                                const fileName = `group-${chatId}-${Date.now()}.jpg`
-                                                const { error: uploadError } = await supabase.storage
-                                                    .from('chat-attachments')
-                                                    .upload(`avatars/${fileName}`, file)
-                                                
-                                                if (uploadError) throw uploadError
-                                                
-                                                const { data: { publicUrl } } = supabase.storage
-                                                    .from('chat-attachments')
-                                                    .getPublicUrl(`avatars/${fileName}`)
-                                                
-                                                const { error: updateError } = await supabase
-                                                    .from('chats')
-                                                    .update({ avatar_url: publicUrl })
-                                                    .eq('id', chatId)
-                                                
-                                                if (updateError) throw updateError
-                                                
-                                                setChat(prev => prev ? { ...prev, avatar_url: publicUrl } : null)
-                                            } catch (err) {
-                                                console.error('Error uploading group avatar:', err)
-                                                alert('Ошибка при загрузке фото')
-                                            }
-                                        }
-                                        input.click()
+                                        const input = document.getElementById('group-avatar-upload') as HTMLInputElement
+                                        if (input) input.click()
                                     }}
                                     className="absolute bottom-1 right-1 p-2.5 bg-blue-500 text-white rounded-full shadow-lg hover:bg-blue-600 transition-all active:scale-90"
                                 >
                                     <Camera className="w-5 h-5" />
                                 </button>
                             )}
+                            <input
+                                id="group-avatar-upload"
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={handleAvatarSelect}
+                            />
                         </div>
                     </div>
+
+                    {/* Avatar Preview Modal */}
+                    {avatarPreview && (
+                      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-300">
+                        <div className="bg-white dark:bg-gray-800 rounded-3xl p-8 max-w-2xl w-full shadow-2xl space-y-8 animate-in zoom-in duration-300">
+                          <div className="text-center">
+                            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-2 tracking-tight">Предпросмотр фото</h3>
+                            <p className="text-gray-500 dark:text-gray-400 font-bold uppercase tracking-widest text-xs">Так будет выглядеть ваша группа</p>
+                          </div>
+                          
+                          <div className="flex justify-center">
+                            <div className="w-48 h-48 rounded-full overflow-hidden border-4 border-blue-500 shadow-xl">
+                              <img src={avatarPreview} className="w-full h-full object-cover" alt="Preview" />
+                            </div>
+                          </div>
+
+                          <div className="flex gap-4">
+                            <button
+                              onClick={() => { setAvatarPreview(null); setSelectedAvatarFile(null) }}
+                              className="flex-1 py-4 px-6 rounded-2xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-200 dark:hover:bg-gray-600 transition-all active:scale-95 uppercase tracking-widest text-sm"
+                            >
+                              Отмена
+                            </button>
+                            <button
+                              onClick={handleUploadAvatar}
+                              disabled={isUploadingAvatar}
+                              className="flex-1 py-4 px-6 rounded-2xl bg-blue-500 text-white font-bold hover:bg-blue-600 disabled:opacity-50 transition-all active:scale-95 shadow-lg shadow-blue-500/20 uppercase tracking-widest text-sm"
+                            >
+                              {isUploadingAvatar ? 'Загрузка...' : 'Сохранить'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                     
                     {/* User Info / Group Members */}
                     <div className="mb-8 text-center space-y-4">
@@ -1994,7 +2097,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       {/* Forward Modal */}
       {showForwardModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowForwardModal(false)}>
-          <div className="bg-white dark:bg-[#17212B] rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] border border-gray-100 dark:border-gray-800" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-[#17212B] rounded-[2.5rem] shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[80vh] border border-gray-100 dark:border-gray-800" onClick={e => e.stopPropagation()}>
             <div className="p-8 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
               <h3 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight">Переслать</h3>
               <button onClick={() => setShowForwardModal(false)} className="p-2.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-all active:scale-90">
@@ -2037,7 +2140,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       {/* Invite Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowInviteModal(false)}>
-          <div className="bg-white dark:bg-[#17212B] rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] border border-gray-100 dark:border-gray-800" onClick={e => e.stopPropagation()}>
+          <div className="bg-white dark:bg-[#17212B] rounded-[2.5rem] shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[80vh] border border-gray-100 dark:border-gray-800" onClick={e => e.stopPropagation()}>
             <div className="p-8 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
               <h3 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight">Пригласить</h3>
               <button onClick={() => setShowInviteModal(false)} className="p-2.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-all active:scale-90">

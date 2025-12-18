@@ -4,10 +4,18 @@ import { Message } from '@/types'
 import { useAuthStore } from '@/store/useAuthStore'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
-import { Play, Pause, Check, CheckCheck, MoreVertical, Edit, Trash2, Reply, X, Paperclip, Share2, Copy, CheckCircle2 } from 'lucide-react'
+import { Play, Pause, Check, CheckCheck, MoreVertical, Edit, Trash2, Reply, X, Paperclip, Share2, Copy, CheckCircle2, Phone, PhoneOff, PhoneIncoming, PhoneOutgoing, PhoneMissed } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 
 const REACTIONS = ['🍌', '❤️', '👍', '🔥', '😂', '😮', '😢', '👏']
+
+// Format call duration
+function formatCallDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60)
+  const secs = seconds % 60
+  if (mins === 0) return `${secs} сек`
+  return `${mins} мин ${secs} сек`
+}
 
 interface MessageBubbleProps {
   message: Message
@@ -271,11 +279,12 @@ export function MessageBubble({
             isMe 
                 ? "bg-[#E7F3FF] dark:bg-[#2b5278] text-black dark:text-white rounded-2xl rounded-tr-sm hover:shadow-md" 
                 : "bg-white dark:bg-[#182533] text-black dark:text-white rounded-2xl rounded-tl-sm border border-gray-200 dark:border-gray-700 hover:shadow-md",
-            isSelectionMode && "pointer-events-none"
+            isSelectionMode && "pointer-events-none",
+            "select-none"
         )}
       >
         {/* Forwarded Info */}
-        {message.forwarded_from_id && (
+        {message.forwarded_from_id && message.type !== 'call' && (
           <div 
             className={cn(
               "flex items-center gap-1.5 mb-1.5 opacity-90 cursor-pointer hover:opacity-100 transition-opacity",
@@ -313,7 +322,7 @@ export function MessageBubble({
 
         <div className="flex items-end gap-1.5 w-full">
         {/* Reply Preview */}
-        {message.reply_to && (
+        {message.reply_to && !message.deleted_at && message.type !== 'call' && (
           <div className={cn(
             "mb-1.5 pl-2 border-l-2 text-xs w-full",
             isMe ? "border-white/30 text-blue-100" : "border-gray-300 dark:border-gray-600 text-gray-500"
@@ -469,6 +478,38 @@ export function MessageBubble({
                 </div>
                 <audio ref={audioRef} src={voiceAttachment.url} className="hidden" preload="metadata" />
             </div>
+        ) : message.type === 'call' ? (
+            <div className="flex items-center gap-3 py-1 min-w-[180px]">
+                <div className={cn(
+                    "w-10 h-10 rounded-full flex items-center justify-center shrink-0",
+                    message.call_info?.status === 'missed' ? "bg-red-100 dark:bg-red-900/30 text-red-500" : "bg-blue-100 dark:bg-blue-900/30 text-blue-500"
+                )}>
+                    {message.call_info?.status === 'missed' ? (
+                        <PhoneMissed className="w-5 h-5" />
+                    ) : message.call_info?.status === 'rejected' ? (
+                        <PhoneOff className="w-5 h-5" />
+                    ) : (
+                        <Phone className="w-5 h-5" />
+                    )}
+                </div>
+                <div className="flex-1 min-w-0">
+                    <div className="text-[15px] font-bold dark:text-white">
+                        {message.call_info?.status === 'missed' ? 'Пропущенный звонок' :
+                         message.call_info?.status === 'rejected' ? 'Отклоненный звонок' :
+                         message.call_info?.status === 'cancelled' ? 'Отмененный звонок' :
+                         'Звонок завершен'}
+                    </div>
+                    {message.call_info?.duration ? (
+                        <div className="text-xs opacity-70">
+                            Длительность: {formatCallDuration(message.call_info.duration)}
+                        </div>
+                    ) : (
+                        <div className="text-xs opacity-70">
+                            {message.created_at ? format(new Date(message.created_at), 'HH:mm') : ''}
+                        </div>
+                    )}
+                </div>
+            </div>
         ) : message.attachments?.some((a: any) => a.type === 'image') ? (
             <div className="space-y-2">
                 {message.attachments.filter((a: any) => a.type === 'image').map((attachment: any, idx: number) => (
@@ -513,7 +554,7 @@ export function MessageBubble({
                     </div>
                 ))}
                 {message.content && message.content !== '📷 Фото' && (
-                    <div className="text-sm break-words whitespace-pre-wrap font-object-sans">
+                    <div className="text-[15px] break-words whitespace-pre-wrap font-object-sans">
                         {message.content}
                     </div>
                 )}
@@ -540,7 +581,7 @@ export function MessageBubble({
                             <Paperclip className={cn("w-5 h-5", isMe ? "text-white" : "text-blue-600 dark:text-blue-400")} />
                         </div>
                         <div className="flex-1 min-w-0">
-                            <div className="font-medium truncate">{attachment.name || 'Файл'}</div>
+                            <div className="font-[15px] truncate">{attachment.name || 'Файл'}</div>
                             {attachment.size && (
                                 <div className="text-xs opacity-70">
                                     {(attachment.size / 1024).toFixed(1)} KB
@@ -550,7 +591,7 @@ export function MessageBubble({
                     </a>
                 ))}
                 {message.content && message.content !== `📎 ${message.attachments[0]?.name}` && (
-                    <div className="text-sm break-words whitespace-pre-wrap font-object-sans">
+                    <div className="text-[15px] break-words whitespace-pre-wrap font-object-sans">
                         {message.content}
                     </div>
                 )}
@@ -568,8 +609,8 @@ export function MessageBubble({
             </div>
         )}
         
-        {/* Time and checkmarks inline - only show if not image */}
-        {!message.attachments?.some((a: any) => a.type === 'image') && (
+        {/* Time and checkmarks inline - only show if not image and not call */}
+        {!message.attachments?.some((a: any) => a.type === 'image') && message.type !== 'call' && (
             <div className={cn("text-[9px] flex items-center gap-1 shrink-0 mt-auto pb-0.5", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
             <span className="opacity-70 whitespace-nowrap">{format(new Date(message.created_at), 'HH:mm')}</span>
             {isMe && (
@@ -594,11 +635,11 @@ export function MessageBubble({
         )}
         </div>
 
-        {/* Reactions Display */}
+        {/* Reactions Display - Positioned ABSOLUTE to raise them and overlap bubble */}
         {message.reactions && Object.keys(message.reactions).length > 0 && (
           <div className={cn(
-            "flex flex-wrap gap-1 mt-1.5",
-            isMe ? "justify-end" : "justify-start"
+            "absolute z-10 flex flex-wrap gap-1 bottom-[-12px]",
+            isMe ? "right-2 justify-end" : "left-2 justify-start"
           )}>
             {Object.entries(message.reactions).slice(0, showAllReactions ? undefined : 5).map(([emoji, userIds]) => (
               <button
@@ -606,12 +647,13 @@ export function MessageBubble({
                 onClick={(e) => { e.stopPropagation(); onReaction?.(message.id, emoji) }}
                 className={cn(
                   "flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] transition-all active:scale-90 animate-in zoom-in duration-300 ease-out-back",
+                  "bg-[#F0F2F5] dark:bg-[#1C2733] border border-gray-200 dark:border-gray-700 shadow-sm hover:scale-110",
                   userIds.includes(user?.id || '') 
                     ? "bg-blue-500/20 border border-blue-500/30 text-blue-600 dark:text-blue-400" 
-                    : "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400"
+                    : "text-gray-600 dark:text-gray-400"
                 )}
               >
-                <span className={cn(emoji === '🍌' && "animate-bounce origin-bottom")}>{emoji}</span>
+                <span className={cn(emoji === '🍌' && "animate-bounce origin-bottom inline-block", "transition-transform")}>{emoji}</span>
                 {userIds.length > 1 && <span className="font-bold">{userIds.length}</span>}
               </button>
             ))}
@@ -619,7 +661,7 @@ export function MessageBubble({
             {Object.keys(message.reactions).length > 5 && (
               <button
                 onClick={(e) => { e.stopPropagation(); setShowAllReactions(!showAllReactions) }}
-                className="flex items-center justify-center w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                className="flex items-center justify-center w-7 h-7 rounded-full bg-[#F0F2F5] dark:bg-[#1C2733] border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 transition-all shadow-sm"
               >
                 <MoreVertical className={cn("w-3.5 h-3.5 transition-transform duration-300", showAllReactions ? "rotate-90" : "rotate-0")} />
               </button>

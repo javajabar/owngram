@@ -28,6 +28,11 @@ export interface Message {
   reactions?: Record<string, string[]> // emoji -> array of user_ids
   forwarded_from_id?: string | null
   forwarded_from?: Profile | null
+  type?: 'text' | 'call'
+  call_info?: {
+    duration: number // in seconds
+    status: 'completed' | 'missed' | 'rejected' | 'cancelled'
+  } | null
 }
 
 export interface Chat {
