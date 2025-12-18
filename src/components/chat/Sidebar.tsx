@@ -689,7 +689,17 @@ export function Sidebar() {
                                     </div>
                                     <div className="flex-1 min-w-0"><div className="flex items-center justify-between mb-0.5"><div className="font-medium text-gray-900 dark:text-gray-100 truncate text-[15px]">{displayName}</div></div><div className="flex items-center justify-between gap-2"><div className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsgPreview}</div>{unreadCount > 0 && <div className="bg-blue-500 text-white text-xs font-semibold rounded-full px-1.5 py-0.5 min-w-[18px] h-[18px] text-center shrink-0 flex items-center justify-center">{unreadCount}</div>}</div></div>
                                 </div>
-                                {contextMenu?.chatId === chat.id && <div className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]" style={{ top: contextMenu.y, left: contextMenu.x }}><button onClick={(e) => { e.stopPropagation(); setDeletingChatId(chat.id); setContextMenu(null) }} className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"><Trash2 className="w-4 h-4" />Удалить чат</button></div>}
+                                {contextMenu && contextMenu.chatId === chat.id && (
+                                    <div 
+                                        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]" 
+                                        style={{ top: contextMenu.y, left: contextMenu.x }}
+                                    >
+                                        <button onClick={(e) => { e.stopPropagation(); setDeletingChatId(chat.id); setContextMenu(null) }} className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
+                                            <Trash2 className="w-4 h-4" />
+                                            Удалить чат
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )
                     })}
