@@ -429,9 +429,27 @@ export function Sidebar() {
             }
         })
     
-    // Note: Global call listener is now in CallListenerProvider (root level)
-    // This ensures it works regardless of UI component lifecycle
+    // Listen for chat read and chat left events
+    const handleChatRead = (event: CustomEvent) => {
+      if (event.detail?.chatId) {
+        // Update unread count locally without full refresh
+        setChats(prev => prev.map(chat => 
+          chat.id === event.detail.chatId 
+            ? { ...chat, unreadCount: 0 }
+            : chat
+        ))
+      }
+    }
     
+    const handleChatLeft = (event: CustomEvent) => {
+      // No need to refresh - real-time updates will handle it
+    }
+    
+    if (typeof window !== 'undefined') {
+      window.addEventListener('chatRead', handleChatRead as EventListener)
+      window.addEventListener('chatLeft', handleChatLeft as EventListener)
+    }
+
     const channel = supabase.channel('sidebar_chats')
         .on('postgres_changes', { 
             event: 'INSERT', 
@@ -484,7 +502,7 @@ export function Sidebar() {
 
             // Play sound and show notification
             if (msgToUse.sender_id !== currentUserId && msgToUse.chat_id !== currentPathChatId) {
-                playNotificationSound()
+                soundManager.playMessageReceived()
                 if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
                     const senderName = (msgToUse.sender as any)?.full_name || 'Собеседник'
                     new Notification(senderName, {
@@ -548,6 +566,10 @@ export function Sidebar() {
         
     return () => { 
         console.log('🧹 [Sidebar] Cleaning up listener')
+        if (typeof window !== 'undefined') {
+          window.removeEventListener('chatRead', handleChatRead as EventListener)
+          window.removeEventListener('chatLeft', handleChatLeft as EventListener)
+        }
         supabase.removeChannel(channel)
     }
   }, [user?.id]) // ONLY depend on user ID to avoid re-subscription spam
