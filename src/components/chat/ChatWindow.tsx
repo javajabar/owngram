@@ -69,6 +69,12 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const callChannelRef = useRef<any>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   
+  // Refs for stable call listener
+  const callStateRef = useRef({ isCalling, incomingCall, isInCall, otherUser })
+  useEffect(() => {
+    callStateRef.current = { isCalling, incomingCall, isInCall, otherUser }
+  }, [isCalling, incomingCall, isInCall, otherUser])
+
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { user } = useAuthStore()
   const { incomingCall: globalIncomingCall, clearIncomingCall } = useCallStore()
@@ -720,11 +726,14 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         async (payload) => {
           const signal = payload.new as any
           
+          // Get latest state from ref to avoid stale closure and dependency spam
+          const { isCalling: refIsCalling, incomingCall: refIncomingCall, otherUser: refOtherUser } = callStateRef.current
+          
           // Convert to strings for reliable comparison
           const signalTo = String(signal.to_user_id || '').trim()
           const signalFrom = String(signal.from_user_id || '').trim()
           const currentUserStr = String(currentUserId || '').trim()
-          const otherUserStr = otherUser?.id ? String(otherUser.id).trim() : ''
+          const otherUserStr = refOtherUser?.id ? String(refOtherUser.id).trim() : ''
           
           console.log('📞 Call signal received:', {
             type: signal.signal_type,
@@ -732,16 +741,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             to: signalTo,
             currentUser: currentUserStr,
             otherUser: otherUserStr,
-            rawFrom: signal.from_user_id,
-            rawTo: signal.to_user_id,
-            rawCurrentUser: currentUserId,
-            isForMe: signalTo === currentUserStr,
-            comparison: {
-              toEqualsCurrent: signalTo === currentUserStr,
-              fromEqualsOther: signalFrom === otherUserStr,
-              typesMatch: typeof signalTo === typeof currentUserStr,
-              lengths: { to: signalTo.length, current: currentUserStr.length }
-            }
+            isForMe: signalTo === currentUserStr
           })
           
           // Skip call-request signals - they're handled globally in Sidebar
@@ -751,13 +751,10 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           }
           
           // Check if this signal is for current user
-          // For call-accept: from_user_id should be otherUser (they accepted our call) OR we need to check if we're calling
-          // For call-reject/call-end: either direction
-          // For WebRTC signals (offer, answer, ice-candidate): pass to WebRTCHandler if we have one
           const isCallAcceptForMe = signal.signal_type === 'call-accept' && 
-            ((signalFrom === otherUserStr && signalTo === currentUserStr) || isCalling)
+            ((signalFrom === otherUserStr && signalTo === currentUserStr) || refIsCalling)
           const isCallRejectForMe = (signal.signal_type === 'call-reject' || signal.signal_type === 'call-end') && 
-            (signalTo === currentUserStr || signalFrom === otherUserStr || isCalling || incomingCall)
+            (signalTo === currentUserStr || signalFrom === otherUserStr || refIsCalling || refIncomingCall)
           
           // WebRTC signals (offer, answer, ice-candidate) should be passed to WebRTCHandler
           const isWebRTCSignal = (signal.signal_type === 'offer' || signal.signal_type === 'answer' || signal.signal_type === 'ice-candidate') &&
@@ -769,8 +766,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               type: signal.signal_type,
               isCallAcceptForMe,
               isCallRejectForMe,
-              isCalling,
-              incomingCall
+              isCalling: refIsCalling,
+              incomingCall: refIncomingCall
             })
             
             if (signal.signal_type === 'call-accept') {
@@ -779,7 +776,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               soundManager.stopCallRinging()
               
               // If we initiated the call, handle acceptance
-              if (isCalling && webrtcHandlerRef.current) {
+              if (refIsCalling && webrtcHandlerRef.current) {
                 console.log('✅ Call accepted, establishing connection...')
                 setIsInCall(true)
                 setIsCalling(false)
@@ -795,8 +792,6 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               // If it's a DM, end the whole thing. If group, maybe just one person left.
               if (chat?.type === 'dm') {
                 handleEndCall()
-              } else {
-                // For groups, WebRTCHandler will handle peer removal internally via its own listener
               }
             }
           } else {
@@ -804,10 +799,10 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               type: signal.signal_type,
               from: signal.from_user_id,
               to: signal.to_user_id,
-              currentUser: user.id,
-              otherUser: otherUser?.id,
-              isCalling,
-              incomingCall
+              currentUser: currentUserId,
+              otherUser: otherUserStr,
+              isCalling: refIsCalling,
+              incomingCall: refIncomingCall
             })
           }
         }
@@ -823,14 +818,14 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
     callChannelRef.current = channel
 
-    // Fallback: Poll for missed signals every 2 seconds (in case Realtime doesn't work)
+    // Fallback: Poll for missed signals every 2 seconds
     const pollInterval = setInterval(async () => {
       try {
         const { data: signals, error } = await supabase
           .from('call_signals')
           .select('*')
           .eq('chat_id', chatId)
-          .eq('to_user_id', user.id)
+          .eq('to_user_id', currentUserId)
           .eq('signal_type', 'call-request')
           .order('created_at', { ascending: false })
           .limit(1)
@@ -842,10 +837,11 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
         if (signals && signals.length > 0) {
           const signal = signals[0]
+          const { isCalling: refIsCalling, incomingCall: refIncomingCall, isInCall: refIsInCall } = callStateRef.current
           // Check if signal is recent (within last 10 seconds) and we haven't processed it
           const signalTime = new Date(signal.created_at).getTime()
           const now = Date.now()
-          if (now - signalTime < 10000 && !incomingCall && !isCalling && !isInCall) {
+          if (now - signalTime < 10000 && !refIncomingCall && !refIsCalling && !refIsInCall) {
             console.log('📞 Found missed call signal via polling:', signal)
             // Process the signal
             if (!otherUser || otherUser.id !== signal.from_user_id) {
@@ -873,7 +869,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       clearInterval(pollInterval)
       supabase.removeChannel(channel)
     }
-  }, [chatId, user, chat, isCalling, incomingCall, isInCall, otherUser])
+  }, [chatId, user?.id, chat?.type])
 
   const markAsRead = async (messageId: string) => {
       try {

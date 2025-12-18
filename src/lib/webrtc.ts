@@ -12,6 +12,7 @@ export class WebRTCHandler {
   private peerConnections: Map<string, RTCPeerConnection> = new Map()
   private localStream: MediaStream | null = null
   private remoteStreams: Map<string, MediaStream> = new Map()
+  private iceCandidateQueues: Map<string, RTCIceCandidateInit[]> = new Map()
   private channel: any = null
   private userId: string
   private chatId: string
@@ -197,6 +198,15 @@ export class WebRTCHandler {
             case 'offer':
               const pcOffer = this.createPeerConnection(fromUserId, false)
               await pcOffer.setRemoteDescription(new RTCSessionDescription(signalData))
+              
+              // Process queued candidates
+              const offerQueue = this.iceCandidateQueues.get(fromUserId) || []
+              while (offerQueue.length > 0) {
+                const cand = offerQueue.shift()
+                if (cand) await pcOffer.addIceCandidate(new RTCIceCandidate(cand))
+              }
+              this.iceCandidateQueues.delete(fromUserId)
+
               const answer = await pcOffer.createAnswer()
               await pcOffer.setLocalDescription(answer)
               this.sendSignal({
@@ -212,13 +222,27 @@ export class WebRTCHandler {
               const pcAnswer = this.peerConnections.get(fromUserId)
               if (pcAnswer) {
                 await pcAnswer.setRemoteDescription(new RTCSessionDescription(signalData))
+                
+                // Process queued candidates
+                const answerQueue = this.iceCandidateQueues.get(fromUserId) || []
+                while (answerQueue.length > 0) {
+                  const cand = answerQueue.shift()
+                  if (cand) await pcAnswer.addIceCandidate(new RTCIceCandidate(cand))
+                }
+                this.iceCandidateQueues.delete(fromUserId)
               }
               break
 
             case 'ice-candidate':
               const pcIce = this.peerConnections.get(fromUserId)
-              if (pcIce) {
+              if (pcIce && pcIce.remoteDescription) {
                 await pcIce.addIceCandidate(new RTCIceCandidate(signalData))
+              } else {
+                // Queue candidate if remote description not set yet
+                if (!this.iceCandidateQueues.has(fromUserId)) {
+                  this.iceCandidateQueues.set(fromUserId, [])
+                }
+                this.iceCandidateQueues.get(fromUserId)!.push(signalData)
               }
               break
 

@@ -418,8 +418,14 @@ export function Sidebar() {
     // This ensures it works regardless of UI component lifecycle
     
     const channel = supabase.channel('sidebar_chats')
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_members', filter: `user_id=eq.${currentUserId}` }, () => {
-            fetchChats(false) // Don't show loading
+        .on('postgres_changes', { 
+            event: 'INSERT', 
+            schema: 'public', 
+            table: 'chat_members', 
+            filter: `user_id=eq.${currentUserId}` 
+        }, () => {
+            console.log('📬 [Sidebar] Added to new chat, refreshing...')
+            fetchChats(false)
         })
         .on('postgres_changes', { 
             event: 'INSERT', 
@@ -428,98 +434,76 @@ export function Sidebar() {
         }, async (payload) => {
             const message = payload.new as any
             
-            // Skip deleted messages
+            // Skip deleted
             if (message.deleted_at && message.deleted_for_all) return
             
-            // Check if user is a member of this chat (client-side filter)
-            // Double-check by querying
-            const { data: memberCheck } = await supabase
-                .from('chat_members')
-                .select('chat_id')
-                .eq('chat_id', message.chat_id)
-                .eq('user_id', currentUserId)
-                .maybeSingle()
+            // Fast check in memory using userChatIds state
+            // Use ref to get latest chat IDs without effect re-run
+            if (!chatsRef.current.some(c => c.id === message.chat_id)) {
+                // If it's a completely new chat we don't know about yet, do a check
+                const { data: memberCheck } = await supabase
+                    .from('chat_members')
+                    .select('chat_id')
+                    .eq('chat_id', message.chat_id)
+                    .eq('user_id', currentUserId)
+                    .maybeSingle()
+                
+                if (!memberCheck) return
+            }
+
+            console.log('📩 [Sidebar] New message for chat:', message.chat_id)
             
-            if (!memberCheck) return // Not a member, ignore
-            
-            // Get current chat ID dynamically
+            // Get current chat ID from URL
             const currentPathChatId = typeof window !== 'undefined' 
-                ? (() => {
-                    const pathParts = window.location.pathname.split('/').filter(Boolean)
-                    if (pathParts[0] === 'chat' && pathParts[1]) {
-                        return pathParts[1]
-                    }
-                    return null
-                })()
+                ? window.location.pathname.split('/').filter(Boolean)[1]
                 : null
             
-            // Fetch full message with sender info
+            // Fetch sender info if needed or just use basic update
             const { data: fullMessage } = await supabase
                 .from('messages')
                 .select('*, sender:profiles(*)')
                 .eq('id', message.id)
                 .single()
             
-            if (!fullMessage) {
-                // If we can't fetch full message, do a full refresh (silent)
-                fetchChats(false)
-                return
-            }
-            
-            // Play sound and show notification if message is not from current user and not in current chat
-            if (fullMessage.sender_id !== currentUserId && fullMessage.chat_id !== currentPathChatId) {
+            const msgToUse = fullMessage || message
+
+            // Play sound and show notification
+            if (msgToUse.sender_id !== currentUserId && msgToUse.chat_id !== currentPathChatId) {
                 playNotificationSound()
-                // Show browser notification only if page is not focused
                 if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
-                    const senderName = (fullMessage.sender as any)?.full_name || 
-                                     (fullMessage.sender as any)?.username?.replace(/^@+/, '') || 
-                                     'Someone'
-                    const content = fullMessage.attachments?.length > 0 
-                        ? (fullMessage.attachments[0].type === 'voice' ? '🎤 Голосовое сообщение' : '📎 Вложение')
-                        : fullMessage.content
-                    
-                    new Notification(`${senderName}`, {
-                        body: content,
-                        icon: (fullMessage.sender as any)?.avatar_url || '/favicon.ico',
-                        tag: fullMessage.chat_id,
-                        requireInteraction: false
+                    const senderName = (msgToUse.sender as any)?.full_name || 'Собеседник'
+                    new Notification(senderName, {
+                        body: msgToUse.content,
+                        tag: msgToUse.chat_id
                     })
                 }
             }
             
-            // Update chat in state
+            // Update state immediately
             setChats(prevChats => {
-                const chatIndex = prevChats.findIndex(c => c.id === fullMessage.chat_id)
-                if (chatIndex === -1) {
-                    // New chat - do full refresh (silent)
-                    fetchChats(false)
+                const updated = [...prevChats]
+                const index = updated.findIndex(c => c.id === msgToUse.chat_id)
+                
+                if (index === -1) {
+                    fetchChats(false) // New chat, full refresh
                     return prevChats
                 }
                 
-                const updatedChats = [...prevChats]
-                const chat = { ...updatedChats[chatIndex] }
+                const chat = { ...updated[index] }
+                chat.lastMessage = msgToUse
                 
-                // Update last message with full data
-                chat.lastMessage = fullMessage
-                
-                // Update unread count if not from me and not currently viewing
-                if (fullMessage.sender_id !== currentUserId && fullMessage.chat_id !== currentPathChatId) {
+                if (msgToUse.sender_id !== currentUserId && msgToUse.chat_id !== currentPathChatId) {
                     chat.unreadCount = (chat.unreadCount || 0) + 1
-                } else if (fullMessage.chat_id === currentPathChatId) {
-                    // If viewing this chat, unread count should be 0
+                } else if (msgToUse.chat_id === currentPathChatId) {
                     chat.unreadCount = 0
                 }
                 
-                updatedChats[chatIndex] = chat
-                
-                // Re-sort by last message time
-                updatedChats.sort((a, b) => {
-                    const timeA = a.lastMessage?.created_at || a.created_at
-                    const timeB = b.lastMessage?.created_at || b.created_at
-                    return new Date(timeB).getTime() - new Date(timeA).getTime()
+                updated[index] = chat
+                return updated.sort((a, b) => {
+                    const tA = new Date(a.lastMessage?.created_at || a.created_at).getTime()
+                    const tB = new Date(b.lastMessage?.created_at || b.created_at).getTime()
+                    return tB - tA
                 })
-                
-                return updatedChats
             })
         })
         .on('postgres_changes', { 
@@ -529,57 +513,29 @@ export function Sidebar() {
         }, async (payload) => {
             const updatedMessage = payload.new as any
             
-            // Check if user is a member of this chat
-            const { data: memberCheck } = await supabase
-                .from('chat_members')
-                .select('chat_id')
-                .eq('chat_id', updatedMessage.chat_id)
-                .eq('user_id', currentUserId)
-                .maybeSingle()
-            
-            if (!memberCheck) return
-            
-            // Update chat in state immediately for read status
+            // Update in memory if we have this chat
             setChats(prevChats => {
-                const chatIndex = prevChats.findIndex(c => c.id === updatedMessage.chat_id)
-                if (chatIndex === -1) return prevChats
+                const index = prevChats.findIndex(c => c.id === updatedMessage.chat_id)
+                if (index === -1) return prevChats
                 
-                const updatedChats = [...prevChats]
-                const chat = { ...updatedChats[chatIndex] }
-                
-                // If this is the last message, update it
+                const updated = [...prevChats]
+                const chat = { ...updated[index] }
                 if (chat.lastMessage?.id === updatedMessage.id) {
                     chat.lastMessage = { ...chat.lastMessage, ...updatedMessage }
+                    updated[index] = chat
                 }
-                
-                // If message was deleted, refresh (silent)
-                if (updatedMessage.deleted_at && updatedMessage.deleted_for_all) {
-                    fetchChats(false)
-                    return prevChats
-                }
-                
-                updatedChats[chatIndex] = chat
-                return updatedChats
+                return updated
             })
-            
-            // Debounced full refresh for other updates
-            if (fetchTimeoutRef.current) {
-                clearTimeout(fetchTimeoutRef.current)
-            }
-            fetchTimeoutRef.current = setTimeout(() => {
-                fetchChats(false) // Silent refresh
-            }, 500)
         })
-        .subscribe()
+        .subscribe((status) => {
+            console.log('📡 [Sidebar] Realtime status:', status)
+        })
         
     return () => { 
+        console.log('🧹 [Sidebar] Cleaning up listener')
         supabase.removeChannel(channel)
-        // Clean up fetch timeout
-        if (fetchTimeoutRef.current) {
-            clearTimeout(fetchTimeoutRef.current)
-        }
     }
-  }, [user, myProfile])
+  }, [user?.id]) // ONLY depend on user ID to avoid re-subscription spam
   
   // Subscribe to profile updates for online status (separate effect)
   useEffect(() => {
