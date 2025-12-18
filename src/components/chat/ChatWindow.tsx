@@ -13,6 +13,7 @@ import { CallModal } from './CallModal'
 import { soundManager } from '@/lib/sounds'
 import { WebRTCHandler } from '@/lib/webrtc'
 import { profileCache } from '@/lib/cache'
+import { ImageCropper } from '@/components/ImageCropper'
 
 // Format last seen time
 function formatLastSeen(dateStr: string): string {
@@ -74,8 +75,8 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [myProfile, setMyProfile] = useState<Profile | null>(null)
   
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
-  const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
-  const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null)
+  const [showAvatarCropper, setShowAvatarCropper] = useState(false)
+  const [cropperImageUrl, setCropperImageUrl] = useState<string | null>(null)
   
   // Pagination State
   const [hasMore, setHasMore] = useState(true)
@@ -374,35 +375,53 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     setUserChats(processed || [])
   }
 
+  const insertSystemMessage = async (content: string, attachments: any[] = []) => {
+    if (!user || !chatId) return
+
+    const { error } = await supabase.from('messages').insert({
+      chat_id: chatId,
+      sender_id: user.id,
+      content,
+      type: 'system',
+      attachments,
+      created_at: new Date().toISOString(),
+    })
+
+    if (error) {
+      console.error('Error inserting system message:', error)
+    }
+  }
+
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
 
-    const reader = new FileReader()
-    reader.onloadend = () => {
-      setAvatarPreview(reader.result as string)
-      setSelectedAvatarFile(file)
-    }
-    reader.readAsDataURL(file)
+    const imageUrl = URL.createObjectURL(file)
+    setCropperImageUrl(imageUrl)
+    setShowAvatarCropper(true)
+    
+    // Reset input
+    e.target.value = ''
   }
 
-  const handleUploadAvatar = async () => {
-    if (!selectedAvatarFile || !chatId) return
+  const handleUploadAvatar = async (croppedBlob: Blob) => {
+    if (!user || !chatId) return
 
     try {
       setIsUploadingAvatar(true)
-      const fileExt = selectedAvatarFile.name.split('.').pop()
-      const fileName = `${chatId}-${Date.now()}.${fileExt}`
+      const fileName = `${chatId}-${Date.now()}.png`
       const filePath = `avatars/${fileName}`
 
       const { error: uploadError } = await supabase.storage
-        .from('avatars')
-        .upload(filePath, selectedAvatarFile)
+        .from('chat-attachments')
+        .upload(filePath, croppedBlob, {
+          contentType: 'image/png'
+        })
 
       if (uploadError) throw uploadError
 
       const { data: { publicUrl } } = supabase.storage
-        .from('avatars')
+        .from('chat-attachments')
         .getPublicUrl(filePath)
 
       const { error: updateError } = await supabase
@@ -413,8 +432,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       if (updateError) throw updateError
 
       setChat(prev => prev ? { ...prev, avatar_url: publicUrl } : null)
-      setAvatarPreview(null)
-      setSelectedAvatarFile(null)
+      setShowAvatarCropper(false)
+      if (cropperImageUrl) URL.revokeObjectURL(cropperImageUrl)
+      setCropperImageUrl(null)
+      
+      // Send system message
+      const displayName = user.full_name || user.username?.replace(/^@+/, '') || 'Пользователь'
+      await insertSystemMessage(`${displayName} поменял(-а) фото группы`, [
+        { type: 'image', url: publicUrl, name: 'group_avatar.png' }
+      ])
+
       alert('Фото группы обновлено!')
     } catch (err: any) {
       console.error('Error uploading group avatar:', err)
@@ -1882,38 +1909,17 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                         </div>
                     </div>
 
-                    {/* Avatar Preview Modal */}
-                    {avatarPreview && (
-                      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-300">
-                        <div className="bg-white dark:bg-gray-800 rounded-3xl p-8 max-w-2xl w-full shadow-2xl space-y-8 animate-in zoom-in duration-300">
-                          <div className="text-center">
-                            <h3 className="text-2xl font-black text-gray-900 dark:text-white mb-2 tracking-tight">Предпросмотр фото</h3>
-                            <p className="text-gray-500 dark:text-gray-400 font-bold uppercase tracking-widest text-xs">Так будет выглядеть ваша группа</p>
-                          </div>
-                          
-                          <div className="flex justify-center">
-                            <div className="w-48 h-48 rounded-full overflow-hidden border-4 border-blue-500 shadow-xl">
-                              <img src={avatarPreview} className="w-full h-full object-cover" alt="Preview" />
-                            </div>
-                          </div>
-
-                          <div className="flex gap-4">
-                            <button
-                              onClick={() => { setAvatarPreview(null); setSelectedAvatarFile(null) }}
-                              className="flex-1 py-4 px-6 rounded-2xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-200 dark:hover:bg-gray-600 transition-all active:scale-95 uppercase tracking-widest text-sm"
-                            >
-                              Отмена
-                            </button>
-                            <button
-                              onClick={handleUploadAvatar}
-                              disabled={isUploadingAvatar}
-                              className="flex-1 py-4 px-6 rounded-2xl bg-blue-500 text-white font-bold hover:bg-blue-600 disabled:opacity-50 transition-all active:scale-95 shadow-lg shadow-blue-500/20 uppercase tracking-widest text-sm"
-                            >
-                              {isUploadingAvatar ? 'Загрузка...' : 'Сохранить'}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
+                    {/* Avatar Cropper Modal */}
+                    {showAvatarCropper && cropperImageUrl && (
+                      <ImageCropper
+                        imageUrl={cropperImageUrl}
+                        onCancel={() => {
+                          setShowAvatarCropper(false)
+                          if (cropperImageUrl) URL.revokeObjectURL(cropperImageUrl)
+                          setCropperImageUrl(null)
+                        }}
+                        onCrop={handleUploadAvatar}
+                      />
                     )}
                     
                     {/* User Info / Group Members */}

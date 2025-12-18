@@ -34,6 +34,26 @@ interface MessageBubbleProps {
   currentUserProfile?: Profile | null
 }
 
+const SystemMessage = ({ message, onUserClick }: { message: Message, onUserClick?: (userId: string) => void }) => {
+  const isPhotoChange = message.content.includes('поменял(-а) фото группы')
+  const photoUrl = message.attachments?.find((a: any) => a.type === 'image')?.url
+
+  return (
+    <div className="flex flex-col items-center justify-center w-full my-4 animate-in fade-in slide-in-from-bottom-2 duration-500">
+      <div className="bg-black/20 dark:bg-white/10 backdrop-blur-md px-4 py-1.5 rounded-full flex items-center gap-2 border border-white/10 shadow-sm">
+        {isPhotoChange && photoUrl && (
+          <div className="w-6 h-6 rounded-full overflow-hidden border border-white/20 shrink-0">
+            <img src={photoUrl} className="w-full h-full object-cover" alt="" />
+          </div>
+        )}
+        <span className="text-[13px] font-bold text-white dark:text-gray-200 drop-shadow-sm select-none">
+          {message.content}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 export function MessageBubble({ 
   message, 
   onReply, 
@@ -50,6 +70,10 @@ export function MessageBubble({
   isSelectionMode = false,
   currentUserProfile
 }: MessageBubbleProps) {
+  if (message.type === 'system') {
+    return <SystemMessage message={message} onUserClick={onUserClick} />
+  }
+
   const { user } = useAuthStore()
   const isMe = user?.id === message.sender_id
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
