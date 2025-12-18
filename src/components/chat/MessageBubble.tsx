@@ -1,6 +1,6 @@
 'use client'
 
-import { Message } from '@/types'
+import { Message, Profile } from '@/types'
 import { useAuthStore } from '@/store/useAuthStore'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'

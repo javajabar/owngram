@@ -437,7 +437,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       setCropperImageUrl(null)
       
       // Send system message
-      const displayName = user.full_name || user.username?.replace(/^@+/, '') || 'Пользователь'
+      const displayName = myProfile?.full_name || myProfile?.username?.replace(/^@+/, '') || 'Пользователь'
       await insertSystemMessage(`${displayName} поменял(-а) фото группы`, [
         { type: 'image', url: publicUrl, name: 'group_avatar.png' }
       ])
