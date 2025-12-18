@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { Message, Profile, Chat } from '@/types'
 import { useAuthStore } from '@/store/useAuthStore'
+import { useCallStore } from '@/store/useCallStore'
 import { Send, Mic, ArrowLeft, MoreVertical, Paperclip, Square, X, Search, Phone } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { MessageBubble } from './MessageBubble'
@@ -69,6 +70,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { user } = useAuthStore()
+  const { incomingCall: globalIncomingCall, clearIncomingCall } = useCallStore()
   const router = useRouter()
   
   // Update my online status periodically (removed - handled globally in Sidebar)
@@ -599,41 +601,64 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     }
   }
 
-  // Listen for global incoming call events (from Sidebar)
+  // Handle incoming calls from global state or events
   useEffect(() => {
-    const handleIncomingCall = (event: CustomEvent) => {
-      const { chatId: incomingChatId, fromUserId } = event.detail
-      console.log('📞 Received incoming call event:', { incomingChatId, currentChatId: chatId, fromUserId })
+    const processIncomingCall = (incomingChatId: string, fromUserId: string) => {
+      if (incomingChatId !== chatId) {
+        console.log('⏭️ Incoming call is for different chat, ignoring')
+        return
+      }
       
-      // If we're in the correct chat, show the call modal
-      if (incomingChatId === chatId) {
-        console.log('✅ Incoming call is for current chat, fetching caller profile...')
-        // Fetch caller profile if not available
-        if (!otherUser || otherUser.id !== fromUserId) {
-          supabase.from('profiles')
-            .select('*')
-            .eq('id', fromUserId)
-            .single()
-            .then(({ data, error }) => {
-              if (error) {
-                console.error('Error fetching caller profile:', error)
-              } else if (data) {
-                console.log('✅ Caller profile loaded:', data)
-                setOtherUser(data as Profile)
-                setIncomingCall(true)
-              }
-            })
-        } else {
-          setIncomingCall(true)
-        }
+      console.log('✅ Incoming call is for current chat, setting up call UI...')
+      
+      // Fetch caller profile if not available
+      if (!otherUser || otherUser.id !== fromUserId) {
+        console.log('📥 Fetching caller profile for incoming call...')
+        supabase.from('profiles')
+          .select('*')
+          .eq('id', fromUserId)
+          .single()
+          .then(({ data, error }) => {
+            if (error) {
+              console.error('❌ Error fetching caller profile:', error)
+            } else if (data) {
+              console.log('✅ Caller profile loaded, showing incoming call:', data)
+              setOtherUser(data as Profile)
+              setIncomingCall(true)
+              clearIncomingCall() // Clear global state after processing
+            }
+          })
+      } else {
+        console.log('✅ Caller profile already available, showing incoming call')
+        setIncomingCall(true)
+        clearIncomingCall() // Clear global state after processing
       }
     }
     
+    // Check global state for incoming call (in case call arrived before ChatWindow loaded)
+    if (globalIncomingCall && globalIncomingCall.chatId === chatId) {
+      console.log('📞 Found incoming call in global state:', globalIncomingCall)
+      processIncomingCall(globalIncomingCall.chatId, globalIncomingCall.fromUserId)
+    }
+    
+    // Listen for incoming call events (from Sidebar)
+    const handleIncomingCall = (event: CustomEvent) => {
+      const { chatId: incomingChatId, fromUserId } = event.detail
+      console.log('📞 Received incoming call event:', { 
+        incomingChatId, 
+        currentChatId: chatId, 
+        fromUserId,
+        isMatch: incomingChatId === chatId
+      })
+      processIncomingCall(incomingChatId, fromUserId)
+    }
+    
     window.addEventListener('incomingCall', handleIncomingCall as EventListener)
+    
     return () => {
       window.removeEventListener('incomingCall', handleIncomingCall as EventListener)
     }
-  }, [chatId, otherUser])
+  }, [chatId, otherUser, globalIncomingCall, clearIncomingCall])
 
   // Handle call signals for current chat (WebRTC signals, call-accept, call-reject, call-end)
   useEffect(() => {

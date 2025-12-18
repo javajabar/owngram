@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/store/useAuthStore'
 import { Plus, Settings, LogOut, User as UserIcon, Search, Trash2, X, MoreVertical } from 'lucide-react'
 import { soundManager } from '@/lib/sounds'
+import { useCallStore } from '@/store/useCallStore'
 
 export function Sidebar() {
     const [chats, setChats] = useState<Chat[]>([])
@@ -28,6 +29,7 @@ export function Sidebar() {
     const chatsRef = useRef<Chat[]>([])
     const router = useRouter()
     const { user, signOut } = useAuthStore()
+    const { setIncomingCall } = useCallStore()
     const [showCreateGroup, setShowCreateGroup] = useState(false)
     const [groupName, setGroupName] = useState('')
     const [selectedUsers, setSelectedUsers] = useState<string[]>([])
@@ -508,19 +510,38 @@ export function Sidebar() {
               .single()
             
             if (chatData && chatData.type === 'dm') {
+              console.log('✅ DM chat confirmed, handling incoming call...')
+              
+              // Play ringing sound immediately
+              soundManager.startCallRinging()
+              
+              // Store incoming call in global state (works even if ChatWindow not loaded yet)
+              setIncomingCall(signal.chat_id, signal.from_user_id)
+              
               // Redirect to the chat
               router.push(`/chat/${signal.chat_id}`)
               
-              // Play ringing sound
-              soundManager.startCallRinging()
+              // Also dispatch custom event for immediate handling if ChatWindow is already loaded
+              setTimeout(() => {
+                console.log('📢 Dispatching incomingCall event...')
+                window.dispatchEvent(new CustomEvent('incomingCall', {
+                  detail: {
+                    chatId: signal.chat_id,
+                    fromUserId: signal.from_user_id
+                  }
+                }))
+              }, 100)
               
-              // Dispatch custom event to notify ChatWindow about incoming call
-              window.dispatchEvent(new CustomEvent('incomingCall', {
-                detail: {
-                  chatId: signal.chat_id,
-                  fromUserId: signal.from_user_id
-                }
-              }))
+              // Retry after longer delay in case navigation takes time
+              setTimeout(() => {
+                console.log('📢 Dispatching incomingCall event (retry)...')
+                window.dispatchEvent(new CustomEvent('incomingCall', {
+                  detail: {
+                    chatId: signal.chat_id,
+                    fromUserId: signal.from_user_id
+                  }
+                }))
+              }, 500)
             }
           }
         }
