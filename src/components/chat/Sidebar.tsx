@@ -94,7 +94,11 @@ export function Sidebar() {
         if (allMembers) {
           allMembers.forEach(m => {
             if (m.profiles) {
-              profileCache.set(m.user_id, m.profiles as Profile)
+              // Supabase can return joined data as an object or an array of one object
+              const profileData = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles
+              if (profileData) {
+                profileCache.set(m.user_id, profileData as unknown as Profile)
+              }
             }
           })
         }
@@ -139,7 +143,8 @@ export function Sidebar() {
 
             if (chat.type === 'dm') {
                 const otherMember = members.find(m => m.user_id !== user.id)
-                otherUser = otherMember ? otherMember.profiles : (myProfile || null)
+                const profileData = otherMember ? (Array.isArray(otherMember.profiles) ? otherMember.profiles[0] : otherMember.profiles) : null
+                otherUser = (profileData as unknown as Profile) || (myProfile || null)
             }
 
             return {
