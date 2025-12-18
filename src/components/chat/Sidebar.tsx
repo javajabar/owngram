@@ -473,6 +473,68 @@ export function Sidebar() {
             }
         })
     
+    // Global listener for incoming calls (works from anywhere on the site)
+    const globalCallChannel = supabase
+      .channel(`global-calls-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'call_signals',
+          filter: `to_user_id=eq.${user.id}`,
+        },
+        async (payload) => {
+          const signal = payload.new as any
+          console.log('📞 Global call signal received:', {
+            type: signal.signal_type,
+            from: signal.from_user_id,
+            to: signal.to_user_id,
+            chatId: signal.chat_id,
+            currentUser: user.id
+          })
+          
+          // Only handle call-request signals
+          if (signal.signal_type === 'call-request') {
+            console.log('📞 Incoming call detected globally, redirecting to chat:', signal.chat_id)
+            
+            // Check if it's a DM chat
+            const { data: chatData } = await supabase
+              .from('chats')
+              .select('type')
+              .eq('id', signal.chat_id)
+              .single()
+            
+            if (chatData && chatData.type === 'dm') {
+              // Redirect to the chat
+              router.push(`/chat/${signal.chat_id}`)
+              
+              // Play ringing sound
+              soundManager.startCallRinging()
+              
+              // Dispatch custom event to notify ChatWindow about incoming call
+              window.dispatchEvent(new CustomEvent('incomingCall', {
+                detail: {
+                  chatId: signal.chat_id,
+                  fromUserId: signal.from_user_id
+                }
+              }))
+            }
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('📡 Global call channel subscription status:', status)
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to global call signals')
+        }
+      })
+    
+    return () => {
+      console.log('🧹 Cleaning up global call listener')
+      supabase.removeChannel(globalCallChannel)
+    }
+    
     const channel = supabase.channel('sidebar_chats')
         .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_members', filter: `user_id=eq.${user.id}` }, () => {
             fetchChats(false) // Don't show loading

@@ -599,15 +599,53 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     }
   }
 
-  // Handle incoming calls
+  // Listen for global incoming call events (from Sidebar)
   useEffect(() => {
-    if (!chatId || !user?.id || chat?.type !== 'dm') {
-      console.log('⚠️ Call listener setup skipped:', { chatId, hasUser: !!user, userId: user?.id, chatType: chat?.type })
+    const handleIncomingCall = (event: CustomEvent) => {
+      const { chatId: incomingChatId, fromUserId } = event.detail
+      console.log('📞 Received incoming call event:', { incomingChatId, currentChatId: chatId, fromUserId })
+      
+      // If we're in the correct chat, show the call modal
+      if (incomingChatId === chatId) {
+        console.log('✅ Incoming call is for current chat, fetching caller profile...')
+        // Fetch caller profile if not available
+        if (!otherUser || otherUser.id !== fromUserId) {
+          supabase.from('profiles')
+            .select('*')
+            .eq('id', fromUserId)
+            .single()
+            .then(({ data, error }) => {
+              if (error) {
+                console.error('Error fetching caller profile:', error)
+              } else if (data) {
+                console.log('✅ Caller profile loaded:', data)
+                setOtherUser(data as Profile)
+                setIncomingCall(true)
+              }
+            })
+        } else {
+          setIncomingCall(true)
+        }
+      }
+    }
+    
+    window.addEventListener('incomingCall', handleIncomingCall as EventListener)
+    return () => {
+      window.removeEventListener('incomingCall', handleIncomingCall as EventListener)
+    }
+  }, [chatId, otherUser])
+
+  // Handle call signals for current chat (WebRTC signals, call-accept, call-reject, call-end)
+  useEffect(() => {
+    if (!chatId || !user?.id) {
+      console.log('⚠️ Call listener setup skipped:', { chatId, hasUser: !!user, userId: user?.id })
       return
     }
 
+    // Don't skip if chat is not loaded yet - we'll check type when processing signals
+    // This allows listener to be set up immediately, even before chat data is fetched
     const currentUserId = user.id // Capture user ID in closure to avoid stale closures
-    console.log('🔔 Setting up call listener for chat:', chatId, 'user:', currentUserId)
+    console.log('🔔 Setting up call listener for chat:', chatId, 'user:', currentUserId, 'chatType:', chat?.type || 'loading...')
 
     const channel = supabase
       .channel(`calls-${chatId}-${currentUserId}`)
@@ -646,12 +684,16 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             }
           })
           
+          // Skip call-request signals - they're handled globally in Sidebar
+          if (signal.signal_type === 'call-request') {
+            console.log('📞 Call-request signal received in ChatWindow (handled globally, ignoring)')
+            return
+          }
+          
           // Check if this signal is for current user
-          // For call-request: to_user_id should be current user
           // For call-accept: from_user_id should be otherUser (they accepted our call) OR we need to check if we're calling
           // For call-reject/call-end: either direction
           // For WebRTC signals (offer, answer, ice-candidate): pass to WebRTCHandler if we have one
-          const isCallRequestForMe = signal.signal_type === 'call-request' && signalTo === currentUserStr
           const isCallAcceptForMe = signal.signal_type === 'call-accept' && 
             ((signalFrom === otherUserStr && signalTo === currentUserStr) || isCalling)
           const isCallRejectForMe = (signal.signal_type === 'call-reject' || signal.signal_type === 'call-end') && 
@@ -662,46 +704,21 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             webrtcHandlerRef.current &&
             (signalFrom === otherUserStr || signalTo === currentUserStr)
           
-          if (isCallRequestForMe || isCallAcceptForMe || isCallRejectForMe || isWebRTCSignal) {
+          // Only process call signals for DM chats (skip for groups)
+          // If chat is not loaded yet, allow processing (it will be checked when chat loads)
+          if (chat && chat.type !== 'dm') {
+            console.log('⏭️ Skipping call signal - not a DM chat:', chat.type)
+            return
+          }
+          
+          if (isCallAcceptForMe || isCallRejectForMe || isWebRTCSignal) {
             console.log('✅ Signal is for me! Processing...', { 
               type: signal.signal_type,
-              isCallRequestForMe,
               isCallAcceptForMe,
               isCallRejectForMe,
               isCalling,
               incomingCall
-            })
-            if (signal.signal_type === 'call-request') {
-              console.log('📞 Incoming call request from:', signalFrom)
-              console.log('🔍 Processing call request - setting incomingCall to true')
-              
-              // Fetch other user info if not available
-              if (!otherUser || String(otherUser.id).trim() !== signalFrom) {
-                console.log('📥 Fetching caller profile for:', signalFrom)
-                supabase.from('profiles')
-                  .select('*')
-                  .eq('id', signal.from_user_id)
-                  .single()
-                  .then(({ data, error }) => {
-                    if (error) {
-                      console.error('❌ Error fetching caller profile:', error)
-                    } else if (data) {
-                      console.log('✅ Caller profile loaded:', data)
-                      setOtherUser(data as Profile)
-                      // Set incoming call after profile is loaded
-                      console.log('🔔 Setting incoming call state after profile load...')
-                      setIncomingCall(true)
-                      soundManager.startCallRinging()
-                    }
-                  })
-              } else {
-                // Profile already available, set incoming call immediately
-                console.log('🔔 Setting incoming call state immediately (profile exists)...')
-                setIncomingCall(true)
-                // Start ringing sound (will repeat until answered/rejected)
-                soundManager.startCallRinging()
-              }
-            } else if (signal.signal_type === 'call-accept') {
+            }) else if (signal.signal_type === 'call-accept') {
               console.log('✅ Call accepted by:', signal.from_user_id)
               // Stop ringing sound
               soundManager.stopCallRinging()
