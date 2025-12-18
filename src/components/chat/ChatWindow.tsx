@@ -1398,7 +1398,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       {/* Call Modal */}
       <CallModal
         isOpen={isCalling || incomingCall || isInCall}
-        isIncoming={incomingCall}
+        isIncoming={incomingCall && !isInCall}
         otherUser={otherUser}
         callStartTime={callStartTime}
         onClose={handleEndCall}

@@ -67,13 +67,16 @@ export function CallModal({
           remoteAudioRef.current.muted = false
           
           // Try to play audio (will work after user gesture)
-          remoteAudioRef.current.play().catch(err => {
-            console.log('⚠️ Audio autoplay blocked (will play after user interaction):', err)
-          })
+          // If call is already active (not incoming), try to play immediately
+          if (!isIncoming && callStartTime) {
+            remoteAudioRef.current.play().catch(err => {
+              console.log('⚠️ Audio autoplay blocked:', err)
+            })
+          }
         }
       }
     }
-  }, [remoteStream])
+  }, [remoteStream, isIncoming, callStartTime])
 
   // Timer for call duration
   useEffect(() => {
