@@ -464,10 +464,10 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         {/* Time and checkmarks inline - only show if not image */}
         {!message.attachments?.some((a: any) => a.type === 'image') && (
             <div className={cn("text-[8px] flex items-center gap-1 shrink-0", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
-                <span className="opacity-70 whitespace-nowrap">{format(new Date(message.created_at), 'HH:mm')}</span>
-                {isMe && (
+            <span className="opacity-70 whitespace-nowrap">{format(new Date(message.created_at), 'HH:mm')}</span>
+            {isMe && (
                     <span className="relative flex items-center" title={message.read_at ? 'Прочитано' : message.delivered_at ? 'Доставлено' : 'Отправляется...'}>
-                        {message.delivered_at ? (
+                    {message.delivered_at ? (
                             message.read_at ? (
                                 // Two checkmarks like in Telegram - second one slightly offset
                                 <span className="relative inline-flex items-center">
@@ -476,14 +476,14 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
                                 </span>
                             ) : (
                                 // Single checkmark for delivered
-                                <Check className="w-3 h-3 text-gray-500 dark:text-gray-400" />
+                            <Check className="w-3 h-3 text-gray-500 dark:text-gray-400" />
                             )
-                        ) : (
-                            <span className="w-3 h-3 text-gray-400">⏳</span>
-                        )}
-                    </span>
-                )}
-            </div>
+                    ) : (
+                        <span className="w-3 h-3 text-gray-400">⏳</span>
+                    )}
+                </span>
+            )}
+        </div>
         )}
       </div>
     </div>

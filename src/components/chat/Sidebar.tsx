@@ -64,8 +64,8 @@ export function Sidebar() {
     try {
         // 1. Fetch my profile if not cached
         if (!myProfile) {
-            const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
-            if (profile) setMyProfile(profile as Profile)
+        const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
+        if (profile) setMyProfile(profile as Profile)
         }
 
         // 2. Fetch all chats I am a member of
@@ -94,7 +94,7 @@ export function Sidebar() {
 
         // Fetch all members of these chats
         const { data: allMembers } = await supabase
-            .from('chat_members')
+                            .from('chat_members')
             .select('chat_id, user_id, profiles(*)')
             .in('chat_id', chatIds)
         
@@ -112,12 +112,12 @@ export function Sidebar() {
 
         // Fetch unread counts
         const { data: unreadMessages } = await supabase
-            .from('messages')
+                                .from('messages')
             .select('chat_id')
             .in('chat_id', chatIds)
-            .neq('sender_id', user.id)
-            .is('read_at', null)
-
+                                .neq('sender_id', user.id)
+                                .is('read_at', null)
+                            
         // Fetch last messages
         const { data: lastMessages } = await supabase
             .from('messages')
@@ -152,36 +152,36 @@ export function Sidebar() {
                 const otherMember = members.find(m => m.user_id !== user.id)
                 const profileData = otherMember ? (Array.isArray(otherMember.profiles) ? otherMember.profiles[0] : otherMember.profiles) : null
                 otherUser = (profileData as unknown as Profile) || (myProfile || null)
-            }
-
-            return {
-                ...chat,
+                    }
+                    
+                    return {
+                        ...chat,
                 lastMessage: lastMessageMap.get(chat.id) || null,
                 otherUser,
                 unreadCount: unreadCountMap.get(chat.id) || 0
-            }
+                    }
         }) || []
 
         // 5. Filter and Sort
         let validChats = processedChats as any[]
-        let foundSavedMessages = false
-        validChats = validChats.filter((chat: any) => {
-            const isSavedMessages = chat.name === 'Избранное' || 
-                (chat.type === 'dm' && chat.otherUser?.id === user.id)
-            if (isSavedMessages) {
+            let foundSavedMessages = false
+            validChats = validChats.filter((chat: any) => {
+                const isSavedMessages = chat.name === 'Избранное' || 
+                    (chat.type === 'dm' && chat.otherUser?.id === user.id)
+                if (isSavedMessages) {
                 if (foundSavedMessages) return false
-                foundSavedMessages = true
-            }
-            return true
-        })
+                    foundSavedMessages = true
+                }
+                return true
+            })
+            
+            validChats.sort((a, b) => {
+                const timeA = a.lastMessage?.created_at || a.created_at
+                const timeB = b.lastMessage?.created_at || b.created_at
+                return new Date(timeB).getTime() - new Date(timeA).getTime()
+            })
 
-        validChats.sort((a, b) => {
-            const timeA = a.lastMessage?.created_at || a.created_at
-            const timeB = b.lastMessage?.created_at || b.created_at
-            return new Date(timeB).getTime() - new Date(timeA).getTime()
-        })
-
-        setChats(validChats)
+            setChats(validChats)
 
         // 6. Update online status
         const onlineSet = new Set<string>()
@@ -199,8 +199,8 @@ export function Sidebar() {
         setChats([])
     } finally {
         setIsLoadingChats(false)
+        }
     }
-  }
 
   // Play notification sound
   const playNotificationSound = () => {
@@ -356,12 +356,12 @@ export function Sidebar() {
     const channelId = `sidebar_global_${currentUserId}_${Date.now()}`
     
     console.log('📡 [Sidebar] Setting up stable realtime channel:', channelId)
-    
+
     const channel = supabase.channel(channelId)
         .on('postgres_changes', { 
             event: 'INSERT', 
             schema: 'public', 
-            table: 'messages'
+            table: 'messages' 
         }, async (payload) => {
             const message = payload.new as any
             if (message.deleted_at && message.deleted_for_all) return
@@ -377,7 +377,7 @@ export function Sidebar() {
             const currentPathChatId = typeof window !== 'undefined' 
                 ? window.location.pathname.split('/').filter(Boolean)[1]
                 : null
-
+            
             if (msgToUse.sender_id !== currentUserId && msgToUse.chat_id !== currentPathChatId) {
                 soundManager.playMessageReceived()
                 if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
@@ -410,9 +410,9 @@ export function Sidebar() {
                 })
             })
         })
-        .on('postgres_changes', {
-            event: 'UPDATE',
-            schema: 'public',
+        .on('postgres_changes', { 
+            event: 'UPDATE', 
+            schema: 'public', 
             table: 'profiles'
         }, (payload) => {
             const updated = payload.new as Profile
@@ -444,13 +444,13 @@ export function Sidebar() {
     const handleChatRead = (event: any) => {
         if (event.detail?.chatId) {
             setChats(prev => prev.map(c => c.id === event.detail.chatId ? { ...c, unreadCount: 0 } : c))
-        }
+            }
     }
     
     if (typeof window !== 'undefined') {
         window.addEventListener('chatRead', handleChatRead as EventListener)
     }
-
+        
     return () => { 
         if (typeof window !== 'undefined') {
             window.removeEventListener('chatRead', handleChatRead as EventListener)
@@ -630,7 +630,7 @@ export function Sidebar() {
     } catch (error: any) {
       console.error('Error creating group:', error); 
       alert(`Ошибка при создании группы: ${error.message || 'Неизвестная ошибка'}`)
-    }
+      }
   }
 
   return (
@@ -662,22 +662,22 @@ export function Sidebar() {
       </div>
 
       <div className="p-3 border-b border-gray-800 dark:border-gray-800 bg-[#17212B] dark:bg-[#17212B]">
-        <div className="relative">
-            <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-            <input 
-                type="text" 
+                    <div className="relative">
+                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                        <input 
+                            type="text" 
                 placeholder="Поиск" 
-                value={searchQuery}
+                            value={searchQuery}
                 onChange={(e) => {
                     const value = e.target.value; setSearchQuery(value)
                     if (value.trim() && value.startsWith('@')) {} 
                     else if (value.trim()) { setShowGlobalSearch(true); searchAllMessages(value) } 
                     else { setShowGlobalSearch(false); setGlobalSearchResults([]) }
                 }}
-                className="w-full pl-9 pr-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-            />
-        </div>
-      </div>
+                            className="w-full pl-9 pr-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                        />
+                    </div>
+                </div>
 
       <div className="flex-1 overflow-y-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-transparent">
          {showGlobalSearch ? (
@@ -721,8 +721,8 @@ export function Sidebar() {
                                 <div className="min-w-0 flex-1"><div className="truncate font-medium text-gray-900 dark:text-gray-100">{u.full_name || u.username}</div><div className="text-xs text-gray-500 truncate">@{u.username}</div></div>
                             </div>
                         ))}
-                    </div>
-                )}
+                           </div>
+                           )}
             </div>
          ) : isLoadingChats ? (
                 <div className="p-8 text-center text-gray-500"><div className="animate-pulse flex flex-col items-center"><div className="h-12 w-12 bg-gray-200 dark:bg-gray-700 rounded-full mb-4"></div><p>Загрузка чатов...</p></div></div>
@@ -754,17 +754,17 @@ export function Sidebar() {
                                 <div onClick={() => router.push(`/chat/${chat.id}`)} className="flex items-center gap-3 flex-1 min-w-0">
                                     <div className="relative w-14 h-14 rounded-full flex items-center justify-center shrink-0 bg-gray-200 dark:bg-gray-700">
                                         <div className="w-14 h-14 rounded-full overflow-hidden flex items-center justify-center">
-                                            {avatarUrl ? (
+                                        {avatarUrl ? (
                                                 <img src={avatarUrl} className="w-full h-full object-cover" alt="U" />
-                                            ) : (
+                                        ) : (
                                                 <div className="w-full h-full flex items-center justify-center bg-gradient-to-tr from-blue-400 to-indigo-500">
                                                     {chat.type === 'group' ? (
                                                         <Users className="w-7 h-7 text-white" />
                                                     ) : (
                                                         <span className="text-white font-semibold text-lg">
                                                             {(displayName[0] || 'U').toUpperCase()}
-                                                        </span>
-                                                    )}
+                                            </span>
+                                        )}
                                                 </div>
                                             )}
                                         </div>
@@ -787,7 +787,7 @@ export function Sidebar() {
                                 </div>
                                 {contextMenu && contextMenu.chatId === chat.id && (
                                     <div 
-                                        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]" 
+                                        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
                                         style={{ top: contextMenu.y, left: contextMenu.x }}
                                     >
                                         <button onClick={(e) => { e.stopPropagation(); setDeletingChatId(chat.id); setContextMenu(null) }} className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
@@ -800,7 +800,7 @@ export function Sidebar() {
                         )
                     })}
                 </div>
-            )}
+         )}
       </div>
 
       <div className="mt-auto p-4 border-t border-gray-800 dark:border-gray-800 bg-[#17212B] dark:bg-[#17212B] shrink-0">

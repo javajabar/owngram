@@ -83,7 +83,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   useEffect(() => {
     callStateRef.current = { isCalling, incomingCall, isInCall, otherUser }
   }, [isCalling, incomingCall, isInCall, otherUser])
-
+  
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const { user } = useAuthStore()
   const { incomingCall: globalIncomingCall, clearIncomingCall } = useCallStore()
@@ -121,7 +121,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
 
   useEffect(() => {
     checkBlockStatus()
-
+    
     // Subscribe to block status changes
     const blockChannel = supabase.channel(`blocks:${chatId}`)
       .on('postgres_changes', {
@@ -132,12 +132,12 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         checkBlockStatus()
       })
       .subscribe()
-
+    
     return () => {
       supabase.removeChannel(blockChannel)
     }
   }, [checkBlockStatus, chatId])
-
+  
   // Update my online status periodically (removed - handled globally in Sidebar)
   // This prevents duplicate updates
   
@@ -319,24 +319,24 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     const fetchInitialMessages = async () => {
       setHasMore(true)
       const { data, error } = await supabase.from('messages')
-        .select('*, sender:profiles(*)')
-        .eq('chat_id', chatId)
+      .select('*, sender:profiles(*)')
+      .eq('chat_id', chatId)
         .order('created_at', { ascending: false }) // Get latest first for pagination
         .limit(MESSAGES_PER_PAGE)
       
-      if (error) {
-        console.error('Error fetching messages:', error)
-        setMessages([])
-        return
-      }
-      
-      if (data) {
-        const mappedMessages = data
+        if (error) {
+          console.error('Error fetching messages:', error)
+          setMessages([])
+          return
+        }
+        
+        if (data) {
+          const mappedMessages = data
           .filter((msg: any) => !(msg.deleted_at && msg.deleted_for_all))
           .map((msg: any) => ({ ...msg, reply_to: null }))
           .reverse() as Message[] // Reverse back to chronological order
         
-        setMessages(mappedMessages)
+          setMessages(mappedMessages)
         setHasMore(data.length === MESSAGES_PER_PAGE)
         
         // Initial scroll to bottom
@@ -1148,17 +1148,17 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     setMessages(prev => [...prev, optimisticMessage])
     setNewMessage('') 
     setReplyingTo(null)
-    
+
     // Scroll to bottom immediately
     setTimeout(scrollToBottom, 50)
 
     try {
       const { error, data } = await supabase.from('messages').insert({
         id: tempId,
-        chat_id: chatId,
-        sender_id: user.id,
-        content: text,
-        reply_to_id: replyingTo?.id || null,
+      chat_id: chatId,
+      sender_id: user.id,
+      content: text,
+      reply_to_id: replyingTo?.id || null,
         delivered_at: new Date().toISOString()
       }).select().single()
 
@@ -1172,7 +1172,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       // Play sound
       soundManager.playMessageSent()
     } catch (error) {
-      console.error('Error sending:', error)
+        console.error('Error sending:', error)
       // Mark as error in UI
       setMessages(prev => prev.map(msg => 
         msg.id === tempId ? { ...msg, status: 'error' as const } : msg
@@ -1315,7 +1315,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 title="Поиск"
             >
                 <Search className="w-5 h-5" />
-            </button>
+        </button>
         </div>
       </div>
 
@@ -1464,13 +1464,13 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     <div className="mb-5 text-center space-y-2.5">
                         <div>
                             <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
-                                {chat?.type === 'dm' 
-                                    ? (chat?.name === 'Избранное' ? 'Избранное' : (otherUser?.full_name || otherUser?.username?.replace(/^@+/, '') || 'User'))
-                                    : chat?.name}
-                            </h2>
-                            {chat?.type === 'dm' && chat?.name !== 'Избранное' && otherUser?.username && (
+                            {chat?.type === 'dm' 
+                                ? (chat?.name === 'Избранное' ? 'Избранное' : (otherUser?.full_name || otherUser?.username?.replace(/^@+/, '') || 'User'))
+                                : chat?.name}
+                        </h2>
+                        {chat?.type === 'dm' && chat?.name !== 'Избранное' && otherUser?.username && (
                                 <p className="text-blue-500 dark:text-blue-400 text-sm font-medium">@{otherUser.username.replace(/^@+/, '')}</p>
-                            )}
+                        )}
                         </div>
                         
                         {chat?.type === 'dm' && otherUser?.status && (
@@ -1484,7 +1484,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                 <p className="text-gray-700 dark:text-gray-200 text-sm leading-relaxed whitespace-pre-wrap break-words">
                                     {otherUser.bio}
                                 </p>
-                            </div>
+                    </div>
                         )}
                         
                         {chat?.type === 'dm' && otherUser?.birth_date && (
@@ -1539,13 +1539,13 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                 {isBlockedByMe ? 'Разблокировать' : 'Заблокировать'}
                             </button>
                         )}
-                        
-                        <button 
-                            onClick={() => setShowProfile(false)}
+                    
+                    <button 
+                        onClick={() => setShowProfile(false)}
                             className="w-full py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-2xl text-gray-900 dark:text-white font-semibold transition-all duration-200 shadow-sm hover:shadow-md active:scale-95"
-                        >
-                            Закрыть
-                        </button>
+                    >
+                        Закрыть
+                    </button>
                     </div>
                 </div>
             </div>
@@ -1594,7 +1594,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
             {isBlockedByMe ? 'Вы заблокировали этого пользователя' : 'Вас заблокировали'}
           </div>
         ) : (
-          <form onSubmit={sendMessage} className="flex items-center gap-2 max-w-4xl mx-auto">
+        <form onSubmit={sendMessage} className="flex items-center gap-2 max-w-4xl mx-auto">
               <input
                   type="file"
                   ref={fileInputRef}
@@ -1617,82 +1617,82 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                   {isUploading ? (
                       <div className="w-5 h-5 border-2 border-gray-500 border-t-transparent rounded-full animate-spin" />
                   ) : (
-                      <Paperclip className="w-5 h-5" />
+                <Paperclip className="w-5 h-5" />
                   )}
-              </button>
-              <input
-                  type="text"
-                  value={newMessage}
-                  onChange={e => {
-                      setNewMessage(e.target.value)
-                  }}
-                  onInput={(e) => {
-                      // Send typing indicator when user types
-                      const value = (e.target as HTMLInputElement).value
-                      if (value.trim() && chatId && user) {
-                          // Use the existing channel to send typing event
-                          const typingChannel = supabase.channel(`chat:${chatId}`)
-                          typingChannel.send({
-                              type: 'broadcast',
-                              event: 'typing',
-                              payload: { user_id: user.id, is_typing: true }
-                          })
-                          
-                          // Clear previous timeout
-                          const timeoutKey = `typingTimeout_${chatId}`
-                          if ((window as any)[timeoutKey]) {
-                              clearTimeout((window as any)[timeoutKey])
-                          }
-                          
-                          // Stop typing after 2 seconds of no input
-                          ;(window as any)[timeoutKey] = setTimeout(() => {
-                              typingChannel.send({
-                                  type: 'broadcast',
-                                  event: 'typing',
-                                  payload: { user_id: user.id, is_typing: false }
-                              })
-                          }, 2000)
-                      }
-                  }}
-                  onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                          e.preventDefault()
-                          sendMessage(e)
-                          setIsTyping(false)
-                      }
-                  }}
-                  placeholder={editingMessage ? "Редактировать сообщение..." : replyingTo ? "Ответить..." : "Message..."}
-                  className="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-800 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white transition-all"
-              />
-              {newMessage.trim() ? (
-                  <button type="submit" className="p-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-all active:scale-95 shadow-md">
-                      {editingMessage ? <span className="text-sm">✓</span> : <Send className="w-5 h-5" />}
-                  </button>
-              ) : (
-                  <div className="relative flex items-center">
-                      {isRecording ? (
-                          <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-full animate-pulse">
-                              <span className="text-xs text-red-500 font-bold">Recording...</span>
-                              <button 
-                                  type="button" 
-                                  onClick={stopRecording}
-                                  className="p-3 bg-red-500 hover:bg-red-600 text-white rounded-full transition-all active:scale-95 shadow-md"
-                              >
-                                  {isUploading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Square className="w-4 h-4 fill-current" />}
-                              </button>
-                          </div>
-              ) : (
-                  <button 
-                      type="button" 
-                              onClick={startRecording}
-                      className="p-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full transition-all active:scale-95"
-                  >
-                      <Mic className="w-5 h-5" />
-                  </button>
-                      )}
-                  </div>
-              )}
-          </form>
+            </button>
+            <input
+                type="text"
+                value={newMessage}
+                onChange={e => {
+                    setNewMessage(e.target.value)
+                }}
+                onInput={(e) => {
+                    // Send typing indicator when user types
+                    const value = (e.target as HTMLInputElement).value
+                    if (value.trim() && chatId && user) {
+                        // Use the existing channel to send typing event
+                        const typingChannel = supabase.channel(`chat:${chatId}`)
+                        typingChannel.send({
+                            type: 'broadcast',
+                            event: 'typing',
+                            payload: { user_id: user.id, is_typing: true }
+                        })
+                        
+                        // Clear previous timeout
+                        const timeoutKey = `typingTimeout_${chatId}`
+                        if ((window as any)[timeoutKey]) {
+                            clearTimeout((window as any)[timeoutKey])
+                        }
+                        
+                        // Stop typing after 2 seconds of no input
+                        ;(window as any)[timeoutKey] = setTimeout(() => {
+                            typingChannel.send({
+                                type: 'broadcast',
+                                event: 'typing',
+                                payload: { user_id: user.id, is_typing: false }
+                            })
+                        }, 2000)
+                    }
+                }}
+                onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        sendMessage(e)
+                        setIsTyping(false)
+                    }
+                }}
+                placeholder={editingMessage ? "Редактировать сообщение..." : replyingTo ? "Ответить..." : "Message..."}
+                className="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-800 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white transition-all"
+            />
+            {newMessage.trim() ? (
+                <button type="submit" className="p-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-all active:scale-95 shadow-md">
+                    {editingMessage ? <span className="text-sm">✓</span> : <Send className="w-5 h-5" />}
+                </button>
+            ) : (
+                <div className="relative flex items-center">
+                    {isRecording ? (
+                        <div className="flex items-center gap-2 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded-full animate-pulse">
+                            <span className="text-xs text-red-500 font-bold">Recording...</span>
+                            <button 
+                                type="button" 
+                                onClick={stopRecording}
+                                className="p-3 bg-red-500 hover:bg-red-600 text-white rounded-full transition-all active:scale-95 shadow-md"
+                            >
+                                {isUploading ? <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Square className="w-4 h-4 fill-current" />}
+                            </button>
+                        </div>
+            ) : (
+                <button 
+                    type="button" 
+                            onClick={startRecording}
+                    className="p-3 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-500 dark:text-gray-400 rounded-full transition-all active:scale-95"
+                >
+                    <Mic className="w-5 h-5" />
+                </button>
+                    )}
+                </div>
+            )}
+        </form>
         )}
       </div>
     </div>

@@ -24,7 +24,7 @@ export default function RootLayout({
       <body className="antialiased font-outfit">
         <AuthProvider>
           <CallListenerProvider>
-            {children}
+        {children}
           </CallListenerProvider>
         </AuthProvider>
       </body>

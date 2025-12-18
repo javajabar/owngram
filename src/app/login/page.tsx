@@ -140,10 +140,10 @@ export default function LoginPage() {
           // Check if email confirmation is required
           if (signUpData.user && !signUpData.session) {
             // Email confirmation required - show OTP modal and send OTP
-            setPendingEmail(email)
+        setPendingEmail(email)
             setIsOtpSignUp(true)
-            setShowOtpModal(true)
-            setCountdown(60)
+        setShowOtpModal(true)
+        setCountdown(60)
             setIsLoading(false)
             
             // Automatically send OTP code
@@ -164,9 +164,9 @@ export default function LoginPage() {
               setOtpError('Ошибка отправки кода. Попробуйте отправить повторно.')
             }
             
-            setTimeout(() => {
-              otpInputRefs.current[0]?.focus()
-            }, 100)
+        setTimeout(() => {
+          otpInputRefs.current[0]?.focus()
+        }, 100)
             return
           }
 
@@ -206,9 +206,9 @@ export default function LoginPage() {
         
         try {
           const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-          })
+          email,
+          password,
+        })
 
           console.log('Login result:', { 
             hasData: !!signInData, 
@@ -258,7 +258,7 @@ export default function LoginPage() {
           
           // Check user and wait for session
           console.log('👤 Checking user...')
-          await checkUser()
+        await checkUser()
           
           // Double check session multiple times to ensure cookies are set
           let sessionConfirmed = false
@@ -318,10 +318,10 @@ export default function LoginPage() {
       let data, error
       if (isOtpSignUp) {
         const result = await supabase.auth.verifyOtp({
-          email: pendingEmail,
-          token: fullCode,
-          type: 'signup',
-        })
+        email: pendingEmail,
+        token: fullCode,
+        type: 'signup',
+      })
         data = result.data
         error = result.error
       } else {
@@ -339,26 +339,26 @@ export default function LoginPage() {
       if (data?.user) {
         // Create or update profile only for signup
         if (isOtpSignUp) {
-          const { error: profileError } = await supabase
-            .from('profiles')
-            .upsert({
-              id: data.user.id,
-              username: username || '@' + pendingEmail.split('@')[0],
-              full_name: fullName || pendingEmail.split('@')[0],
-              updated_at: new Date().toISOString()
-            }, {
-              onConflict: 'id'
-            })
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .upsert({
+            id: data.user.id,
+            username: username || '@' + pendingEmail.split('@')[0],
+            full_name: fullName || pendingEmail.split('@')[0],
+            updated_at: new Date().toISOString()
+          }, {
+            onConflict: 'id'
+          })
 
-          if (profileError) {
-            console.error('Profile creation error:', profileError)
-          }
+        if (profileError) {
+          console.error('Profile creation error:', profileError)
+        }
         }
 
         // Wait for cookies to be set properly
         console.log('⏳ Waiting for session cookies after OTP...')
         await new Promise(resolve => setTimeout(resolve, 1000))
-        
+
         // Check user and wait for session
         await checkUser()
         
@@ -522,11 +522,11 @@ export default function LoginPage() {
                   </label>
                   <div className="relative">
                     <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500 font-medium">@</span>
-                    <input
-                      id="username"
-                      type="text"
+                  <input
+                    id="username"
+                    type="text"
                       required
-                      value={username}
+                    value={username}
                       onChange={(e) => {
                         // Only allow English letters, numbers, underscore
                         const value = e.target.value.replace(/[^a-zA-Z0-9_]/g, '')
@@ -534,7 +534,7 @@ export default function LoginPage() {
                       }}
                       className="w-full pl-9 pr-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
                       placeholder="username"
-                    />
+                  />
                   </div>
                   <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     Только английские буквы, цифры и подчеркивание
@@ -558,26 +558,26 @@ export default function LoginPage() {
               />
             </div>
 
-            <div>
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
-                Пароль
-              </label>
-              <input
-                id="password"
-                type="password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
-                placeholder="••••••••"
-                minLength={6}
-              />
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                  Пароль
+                </label>
+                <input
+                  id="password"
+                  type="password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition"
+                  placeholder="••••••••"
+                  minLength={6}
+                />
               {isSignUp && (
                 <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   Минимум 6 символов
                 </p>
               )}
-            </div>
+              </div>
           </div>
 
           <div>
