@@ -535,16 +535,17 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const handleAcceptCall = async () => {
     if (!user || !otherUser || !chatId) return
 
-    try {
-      // Stop ringing sound
-      soundManager.stopCallRinging()
-      
-      setIsInCall(true)
-      setIncomingCall(false)
-      setCallStartTime(Date.now())
-      // Play call answered sound
-      soundManager.playCallAnswered()
+    // IMMEDIATELY change state - don't wait for anything
+    setIsInCall(true)
+    setIncomingCall(false)
+    setCallStartTime(Date.now())
+    
+    // Stop ringing sound
+    soundManager.stopCallRinging()
+    // Play call answered sound
+    soundManager.playCallAnswered()
 
+    try {
       // Send call accept
       await supabase.from('call_signals').insert({
         chat_id: chatId,
@@ -554,7 +555,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         created_at: new Date().toISOString(),
       })
 
-      // Initialize WebRTC as answerer
+      // Initialize WebRTC as answerer (async, but state is already changed)
       const handler = new WebRTCHandler(
         user.id,
         otherUser.id,
@@ -562,7 +563,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         (stream) => {
           console.log('📥 Remote stream received in ChatWindow:', stream)
           setRemoteStream(stream)
-          // Audio will be played by CallModal after user gesture (this click)
+          // Audio will be played by CallModal useEffect when call is active
         },
         handleEndCall
       )

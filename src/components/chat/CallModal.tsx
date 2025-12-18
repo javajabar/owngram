@@ -46,34 +46,39 @@ export function CallModal({
     }
   }, [localStream])
 
+  // Handle video stream
   useEffect(() => {
-    if (remoteStream) {
-      // Handle video
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStream
-        remoteVideoRef.current.play().catch(err => {
-          console.error('Error playing remote video:', err)
+    if (remoteVideoRef.current && remoteStream) {
+      remoteVideoRef.current.srcObject = remoteStream
+      remoteVideoRef.current.play().catch(err => {
+        console.error('Error playing remote video:', err)
+      })
+    }
+  }, [remoteStream])
+
+  // Handle audio stream separately (only when call is active, not incoming)
+  useEffect(() => {
+    if (!isIncoming && callStartTime && remoteStream && remoteAudioRef.current) {
+      // Create audio-only stream from remote stream
+      const audioTracks = remoteStream.getAudioTracks()
+      if (audioTracks.length > 0) {
+        const audioStream = new MediaStream(audioTracks)
+        remoteAudioRef.current.srcObject = audioStream
+        remoteAudioRef.current.volume = 1.0
+        remoteAudioRef.current.muted = false
+        
+        // Try to play audio (call is active, user has clicked accept)
+        remoteAudioRef.current.play().catch(err => {
+          console.log('⚠️ Audio autoplay blocked (will retry):', err)
+          // Retry after a short delay
+          setTimeout(() => {
+            if (remoteAudioRef.current) {
+              remoteAudioRef.current.play().catch(() => {
+                console.log('⚠️ Audio still blocked, user may need to interact')
+              })
+            }
+          }, 500)
         })
-      }
-      
-      // Handle audio separately (required for autoplay policy)
-      if (remoteAudioRef.current) {
-        // Create audio-only stream from remote stream
-        const audioTracks = remoteStream.getAudioTracks()
-        if (audioTracks.length > 0) {
-          const audioStream = new MediaStream(audioTracks)
-          remoteAudioRef.current.srcObject = audioStream
-          remoteAudioRef.current.volume = 1.0
-          remoteAudioRef.current.muted = false
-          
-          // Try to play audio (will work after user gesture)
-          // If call is already active (not incoming), try to play immediately
-          if (!isIncoming && callStartTime) {
-            remoteAudioRef.current.play().catch(err => {
-              console.log('⚠️ Audio autoplay blocked:', err)
-            })
-          }
-        }
       }
     }
   }, [remoteStream, isIncoming, callStartTime])
@@ -181,17 +186,10 @@ export function CallModal({
               </button>
               {onAccept && (
                 <button
-                  onClick={async () => {
-                    // User gesture - now we can play audio
-                    if (remoteAudioRef.current) {
-                      try {
-                        await remoteAudioRef.current.play()
-                        console.log('✅ Audio playback started after user gesture')
-                      } catch (err) {
-                        console.error('❌ Error playing audio after user gesture:', err)
-                      }
-                    }
+                  onClick={() => {
+                    // Accept call immediately - don't wait for audio
                     onAccept()
+                    // Audio will be played separately in useEffect when call is active
                   }}
                   className="w-16 h-16 rounded-full bg-green-500 hover:bg-green-600 flex items-center justify-center transition-colors shadow-lg"
                 >
