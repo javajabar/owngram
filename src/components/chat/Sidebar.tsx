@@ -387,30 +387,6 @@ export function Sidebar() {
       if (pathParts[1] === 'chat' && pathParts[2]) {
         currentChatId = pathParts[2]
       }
-      
-      // Listen for chat read and chat left events
-      const handleChatRead = (event: CustomEvent) => {
-        if (event.detail?.chatId) {
-          // Update unread count locally without full refresh
-          setChats(prev => prev.map(chat => 
-            chat.id === event.detail.chatId 
-              ? { ...chat, unreadCount: 0 }
-              : chat
-          ))
-        }
-      }
-      
-      const handleChatLeft = (event: CustomEvent) => {
-        // No need to refresh - real-time updates will handle it
-      }
-      
-      window.addEventListener('chatRead', handleChatRead as EventListener)
-      window.addEventListener('chatLeft', handleChatLeft as EventListener)
-      
-      return () => {
-        window.removeEventListener('chatRead', handleChatRead as EventListener)
-        window.removeEventListener('chatLeft', handleChatLeft as EventListener)
-      }
     }
 
     // Request notification permission on mount
@@ -430,7 +406,7 @@ export function Sidebar() {
         })
     
     // Listen for chat read and chat left events
-    const handleChatRead = (event: CustomEvent) => {
+    const handleChatRead = (event: any) => {
       if (event.detail?.chatId) {
         // Update unread count locally without full refresh
         setChats(prev => prev.map(chat => 
@@ -441,13 +417,8 @@ export function Sidebar() {
       }
     }
     
-    const handleChatLeft = (event: CustomEvent) => {
-      // No need to refresh - real-time updates will handle it
-    }
-    
     if (typeof window !== 'undefined') {
       window.addEventListener('chatRead', handleChatRead as EventListener)
-      window.addEventListener('chatLeft', handleChatLeft as EventListener)
     }
 
     const channel = supabase.channel('sidebar_chats')
@@ -568,7 +539,6 @@ export function Sidebar() {
         console.log('🧹 [Sidebar] Cleaning up listener')
         if (typeof window !== 'undefined') {
           window.removeEventListener('chatRead', handleChatRead as EventListener)
-          window.removeEventListener('chatLeft', handleChatLeft as EventListener)
         }
         supabase.removeChannel(channel)
     }
