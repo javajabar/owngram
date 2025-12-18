@@ -17,6 +17,7 @@ interface CallModalProps {
   isVideoEnabled: boolean
   onToggleMute: () => void
   onToggleVideo: () => void
+  callStartTime: number | null
 }
 
 export function CallModal({
@@ -32,9 +33,11 @@ export function CallModal({
   isVideoEnabled,
   onToggleMute,
   onToggleVideo,
+  callStartTime,
 }: CallModalProps) {
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
+  const [callDuration, setCallDuration] = useState<string>('00:00')
 
   useEffect(() => {
     if (localVideoRef.current && localStream) {
@@ -54,6 +57,30 @@ export function CallModal({
       })
     }
   }, [remoteStream])
+
+  // Timer for call duration
+  useEffect(() => {
+    if (!callStartTime) {
+      setCallDuration('00:00')
+      return
+    }
+
+    const updateTimer = () => {
+      const now = Date.now()
+      const elapsed = Math.floor((now - callStartTime) / 1000) // seconds
+      const minutes = Math.floor(elapsed / 60)
+      const seconds = elapsed % 60
+      setCallDuration(`${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`)
+    }
+
+    // Update immediately
+    updateTimer()
+
+    // Update every second
+    const interval = setInterval(updateTimer, 1000)
+
+    return () => clearInterval(interval)
+  }, [callStartTime])
 
   if (!isOpen) return null
 
@@ -89,7 +116,9 @@ export function CallModal({
                 <h3 className="text-white text-xl font-semibold mb-1">
                   {otherUser?.full_name || otherUser?.username?.replace(/^@+/, '') || 'User'}
                 </h3>
-                {isIncoming ? (
+                {callStartTime ? (
+                  <p className="text-white text-lg font-medium">{callDuration}</p>
+                ) : isIncoming ? (
                   <p className="text-gray-400">Входящий звонок...</p>
                 ) : (
                   <p className="text-gray-400">Звонок...</p>

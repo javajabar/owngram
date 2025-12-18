@@ -45,10 +45,16 @@ export class WebRTCHandler {
         },
       })
       
+      // Log all tracks
+      const audioTracks = this.localStream.getAudioTracks()
+      const videoTracks = this.localStream.getVideoTracks()
+      console.log('🎤 Audio tracks received:', audioTracks.length, audioTracks.map(t => ({ label: t.label, enabled: t.enabled, readyState: t.readyState })))
+      console.log('📹 Video tracks received:', videoTracks.length, videoTracks.map(t => ({ label: t.label, enabled: t.enabled, readyState: t.readyState })))
+      
       // Ensure audio tracks are enabled
-      this.localStream.getAudioTracks().forEach(track => {
+      audioTracks.forEach(track => {
         track.enabled = true
-        console.log('🎤 Audio track enabled:', track.label, track.enabled)
+        console.log('🎤 Audio track enabled:', track.label, track.enabled, track.readyState)
       })
 
       // Create peer connection with multiple STUN/TURN servers for better connectivity
@@ -66,21 +72,39 @@ export class WebRTCHandler {
         ],
       })
 
-      // Add local stream tracks
-      this.localStream.getTracks().forEach((track) => {
+      // Add local stream tracks (BOTH audio and video)
+      const allTracks = this.localStream.getTracks()
+      console.log('📡 Adding tracks to PeerConnection:', allTracks.length, 'tracks')
+      allTracks.forEach((track) => {
         if (this.peerConnection) {
-          this.peerConnection.addTrack(track, this.localStream!)
+          const sender = this.peerConnection.addTrack(track, this.localStream!)
+          console.log(`✅ Added ${track.kind} track:`, track.label, 'sender:', sender)
         }
       })
+      
+      // Verify tracks were added
+      const senders = this.peerConnection.getSenders()
+      console.log('📊 PeerConnection senders:', senders.length, senders.map(s => ({
+        track: s.track?.kind || 'null',
+        label: s.track?.label || 'null'
+      })))
 
       // Handle remote stream
       this.peerConnection.ontrack = (event) => {
+        console.log('📥 Remote track received:', event.track.kind, event.track.label, event.track.readyState)
         if (event.streams && event.streams[0]) {
           this.remoteStream = event.streams[0]
+          
+          // Log all remote tracks
+          const remoteAudioTracks = this.remoteStream.getAudioTracks()
+          const remoteVideoTracks = this.remoteStream.getVideoTracks()
+          console.log('🔊 Remote audio tracks:', remoteAudioTracks.length, remoteAudioTracks.map(t => ({ label: t.label, enabled: t.enabled, readyState: t.readyState })))
+          console.log('📹 Remote video tracks:', remoteVideoTracks.length, remoteVideoTracks.map(t => ({ label: t.label, enabled: t.enabled, readyState: t.readyState })))
+          
           // Ensure audio tracks are enabled
-          this.remoteStream.getAudioTracks().forEach(track => {
+          remoteAudioTracks.forEach(track => {
             track.enabled = true
-            console.log('🔊 Remote audio track enabled:', track.label, track.enabled)
+            console.log('🔊 Remote audio track enabled:', track.label, track.enabled, track.readyState)
           })
           this.onRemoteStream(this.remoteStream)
         }
@@ -113,6 +137,14 @@ export class WebRTCHandler {
       // Create offer if initiator
       if (isInitiator) {
         const offer = await this.peerConnection.createOffer()
+        
+        // Log SDP to verify audio is included
+        console.log('📝 Offer SDP:', offer.sdp)
+        const hasAudio = offer.sdp?.includes('m=audio') || offer.sdp?.includes('audio')
+        const hasVideo = offer.sdp?.includes('m=video') || offer.sdp?.includes('video')
+        console.log('🎵 Offer contains audio:', hasAudio)
+        console.log('📹 Offer contains video:', hasVideo)
+        
         await this.peerConnection.setLocalDescription(offer)
         this.sendSignal({
           type: 'offer',
@@ -181,7 +213,19 @@ export class WebRTCHandler {
       switch (signal.type) {
         case 'offer':
           await this.peerConnection.setRemoteDescription(new RTCSessionDescription(signal.data))
+          
+          // Log offer SDP to verify audio
+          console.log('📝 Received offer SDP:', signal.data.sdp)
+          const offerHasAudio = signal.data.sdp?.includes('m=audio') || signal.data.sdp?.includes('audio')
+          console.log('🎵 Offer contains audio:', offerHasAudio)
+          
           const answer = await this.peerConnection.createAnswer()
+          
+          // Log answer SDP to verify audio
+          console.log('📝 Answer SDP:', answer.sdp)
+          const answerHasAudio = answer.sdp?.includes('m=audio') || answer.sdp?.includes('audio')
+          console.log('🎵 Answer contains audio:', answerHasAudio)
+          
           await this.peerConnection.setLocalDescription(answer)
           this.sendSignal({
             type: 'answer',

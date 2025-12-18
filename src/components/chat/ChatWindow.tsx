@@ -60,6 +60,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [isCalling, setIsCalling] = useState(false)
   const [incomingCall, setIncomingCall] = useState(false)
   const [isInCall, setIsInCall] = useState(false)
+  const [callStartTime, setCallStartTime] = useState<number | null>(null)
   const [localStream, setLocalStream] = useState<MediaStream | null>(null)
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
   const [isMuted, setIsMuted] = useState(false)
@@ -476,11 +477,12 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       webrtcHandlerRef.current = null
     }
 
-    setIsCalling(false)
-    setIncomingCall(false)
-    setIsInCall(false)
-    setLocalStream(null)
-    setRemoteStream(null)
+      setIsCalling(false)
+      setIncomingCall(false)
+      setIsInCall(false)
+      setCallStartTime(null)
+      setLocalStream(null)
+      setRemoteStream(null)
     setIsMuted(false)
     setIsVideoEnabled(true)
   }
@@ -539,6 +541,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       
       setIsInCall(true)
       setIncomingCall(false)
+      setCallStartTime(Date.now())
       // Play call answered sound
       soundManager.playCallAnswered()
 
@@ -755,6 +758,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                 console.log('✅ Call accepted, establishing connection...')
                 setIsInCall(true)
                 setIsCalling(false)
+                setCallStartTime(Date.now())
                 // Play call answered sound
                 soundManager.playCallAnswered()
                 // Handler already exists from handleStartCall, WebRTC should already be initialized
@@ -1392,6 +1396,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
         isOpen={isCalling || incomingCall || isInCall}
         isIncoming={incomingCall}
         otherUser={otherUser}
+        callStartTime={callStartTime}
         onClose={handleEndCall}
         onAccept={handleAcceptCall}
         onReject={handleRejectCall}
