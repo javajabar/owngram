@@ -421,7 +421,7 @@ export function Sidebar() {
       window.addEventListener('chatRead', handleChatRead as EventListener)
     }
 
-    const channel = supabase.channel('sidebar_chats')
+    const channel = supabase.channel(`sidebar_chats_${currentUserId}`)
         .on('postgres_changes', { 
             event: 'INSERT', 
             schema: 'public', 
