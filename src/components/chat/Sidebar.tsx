@@ -27,12 +27,19 @@ export function Sidebar() {
     const [isLoadingChats, setIsLoadingChats] = useState(false)
     const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null)
     const chatsRef = useRef<Chat[]>([])
+    const userChatIdsRef = useRef<string[]>([])
     const router = useRouter()
     const { user, signOut } = useAuthStore()
     const [showCreateGroup, setShowCreateGroup] = useState(false)
     const [groupName, setGroupName] = useState('')
     const [selectedUsers, setSelectedUsers] = useState<string[]>([])
     const [availableUsers, setAvailableUsers] = useState<Profile[]>([])
+
+  // Keep refs in sync
+  useEffect(() => {
+    chatsRef.current = chats
+    userChatIdsRef.current = userChatIds
+  }, [chats, userChatIds])
 
   // Close menu when clicking outside
   useEffect(() => {
@@ -69,10 +76,12 @@ export function Sidebar() {
         
         if (!myMemberships || myMemberships.length === 0) {
             setChats([])
+            setUserChatIds([])
             return
         }
         
         const chatIds = myMemberships.map(m => m.chat_id)
+        setUserChatIds(chatIds)
 
         // 3. Fetch chat details, all members (to find "the other person" in DMs), 
         // and last messages in efficient chunks
@@ -83,8 +92,7 @@ export function Sidebar() {
             .select('*')
             .in('id', chatIds)
 
-        // Fetch all members of these chats to identify "otherUser" in DMs
-        // and to get names/avatars for groups if needed
+        // Fetch all members of these chats
         const { data: allMembers } = await supabase
             .from('chat_members')
             .select('chat_id, user_id, profiles(*)')
@@ -94,7 +102,6 @@ export function Sidebar() {
         if (allMembers) {
           allMembers.forEach(m => {
             if (m.profiles) {
-              // Supabase can return joined data as an object or an array of one object
               const profileData = Array.isArray(m.profiles) ? m.profiles[0] : m.profiles
               if (profileData) {
                 profileCache.set(m.user_id, profileData as unknown as Profile)
@@ -103,7 +110,7 @@ export function Sidebar() {
           })
         }
 
-        // Fetch unread counts using a single query (all unread messages for these chats not by me)
+        // Fetch unread counts
         const { data: unreadMessages } = await supabase
             .from('messages')
             .select('chat_id')
@@ -175,9 +182,8 @@ export function Sidebar() {
         })
 
         setChats(validChats)
-        chatsRef.current = validChats
 
-        // 6. Update online status (existing logic but uses processed data)
+        // 6. Update online status
         const onlineSet = new Set<string>()
         const now = Date.now()
         validChats.forEach(chat => {
@@ -206,7 +212,6 @@ export function Sidebar() {
     if (!user) return
     
     try {
-      // Get ALL my DM chats
       const { data: myChats } = await supabase
         .from('chat_members')
         .select('chat_id')
@@ -214,42 +219,29 @@ export function Sidebar() {
       
       if (!myChats) return
       
-      // Find all self-chats (chats where I'm the only member)
       const selfChats: string[] = []
-      
       for (const mc of myChats) {
         const { data: members } = await supabase
           .from('chat_members')
           .select('user_id')
           .eq('chat_id', mc.chat_id)
         
-        // If I'm the only member, it's a self-chat
         if (members && members.length === 1 && members[0].user_id === user.id) {
           selfChats.push(mc.chat_id)
         }
       }
       
       if (selfChats.length > 0) {
-        // Keep only the first one, delete the rest
         const [keepChatId, ...deleteChats] = selfChats
-        
-        // Update the first one to have name "Избранное"
-        await supabase
-          .from('chats')
-          .update({ name: 'Избранное', type: 'dm' })
-          .eq('id', keepChatId)
-        
-        // Delete duplicates
+        await supabase.from('chats').update({ name: 'Избранное', type: 'dm' }).eq('id', keepChatId)
         for (const chatId of deleteChats) {
           await supabase.from('chat_members').delete().eq('chat_id', chatId)
           await supabase.from('messages').delete().eq('chat_id', chatId)
           await supabase.from('chats').delete().eq('id', chatId)
         }
-        
-        return // We have a saved messages chat now
+        return
       }
       
-      // No self-chat exists, create one
       const { data: savedChat, error: chatError } = await supabase
         .from('chats')
         .insert({ type: 'dm', name: 'Избранное' })
@@ -257,34 +249,26 @@ export function Sidebar() {
         .single()
       
       if (chatError) throw chatError
-      if (!savedChat) return
-      
-      // Add user as the only member
-      await supabase
-        .from('chat_members')
-        .insert({ chat_id: savedChat.id, user_id: user.id })
-        
+      if (savedChat) {
+        await supabase.from('chat_members').insert({ chat_id: savedChat.id, user_id: user.id })
+      }
     } catch (e) {
       console.error('Error creating saved messages chat:', e)
     }
   }
 
-  // Update online status globally
+  // Update my online status periodically
   useEffect(() => {
     if (!user) return
     
     let lastUpdate = 0
-    const MIN_UPDATE_INTERVAL = 20000 // 20 seconds minimum between updates
+    const MIN_UPDATE_INTERVAL = 20000 
     let statusUpdateEnabled = true
     
     const updateMyStatus = async (force = false) => {
       if (!statusUpdateEnabled) return
-      
       const now = Date.now()
-      // Only update if at least 20 seconds have passed (or forced)
-      if (!force && now - lastUpdate < MIN_UPDATE_INTERVAL) {
-        return
-      }
+      if (!force && now - lastUpdate < MIN_UPDATE_INTERVAL) return
       lastUpdate = now
       
       try {
@@ -292,15 +276,12 @@ export function Sidebar() {
           .from('profiles')
           .update({ last_seen_at: new Date().toISOString() })
           .eq('id', user.id)
-        
         if (error && error.code === '42703') {
-          // Column doesn't exist, stop trying to update
           statusUpdateEnabled = false
           return
         }
       } catch (error: any) {
         if (error?.code === '42703') {
-          // Column doesn't exist, stop trying
           statusUpdateEnabled = false
           return
         }
@@ -308,42 +289,28 @@ export function Sidebar() {
       }
     }
     
-    // Update immediately
     updateMyStatus(true)
-    
-    // Update every 20 seconds
     const interval = setInterval(() => updateMyStatus(false), 20000)
     
-    // Update on activity (debounced)
     let activityTimeout: NodeJS.Timeout | null = null
     const handleActivity = () => {
-      if (activityTimeout) {
-        clearTimeout(activityTimeout)
-      }
-      // Update after 5 seconds of activity
+      if (activityTimeout) clearTimeout(activityTimeout)
       activityTimeout = setTimeout(() => updateMyStatus(false), 5000)
     }
     
-    // Handle page visibility - update when page becomes visible
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'visible') {
-        updateMyStatus(true) // Force update when page becomes visible
-      }
+      if (document.visibilityState === 'visible') updateMyStatus(true)
     }
     
-    // Handle page unload - send final update
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      // Use synchronous XMLHttpRequest for reliable delivery on page close
+    const handleBeforeUnload = () => {
       try {
         const xhr = new XMLHttpRequest()
-        xhr.open('PATCH', `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`, false) // false = synchronous
+        xhr.open('PATCH', `${process.env.NEXT_PUBLIC_SUPABASE_URL}/rest/v1/profiles?id=eq.${user.id}`, false)
         xhr.setRequestHeader('Content-Type', 'application/json')
         xhr.setRequestHeader('apikey', process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '')
         xhr.setRequestHeader('Authorization', `Bearer ${process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ''}`)
         xhr.send(JSON.stringify({ last_seen_at: new Date().toISOString() }))
-      } catch (error) {
-        // Ignore errors on unload
-      }
+      } catch (error) {}
     }
     
     window.addEventListener('mousemove', handleActivity, { passive: true })
@@ -353,54 +320,44 @@ export function Sidebar() {
     
     return () => {
       clearInterval(interval)
-      if (activityTimeout) {
-        clearTimeout(activityTimeout)
-      }
+      if (activityTimeout) clearTimeout(activityTimeout)
       window.removeEventListener('mousemove', handleActivity)
       window.removeEventListener('keydown', handleActivity)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
       window.removeEventListener('beforeunload', handleBeforeUnload)
-      // Final update on cleanup
       updateMyStatus(true)
     }
   }, [user])
 
+  // --- INITIAL LOAD & CHAT ACTIONS ---
   useEffect(() => {
     if (!user) return
     
-    const currentUserId = user.id // Capture user ID to avoid null checks
-    
-    // Ensure "Избранное" chat exists (only once)
     if (!savedMessagesChecked) {
       ensureSavedMessagesChat().then(() => {
         setSavedMessagesChecked(true)
-        fetchChats(true) // Show loading only on initial load
+        fetchChats(true)
       })
     } else {
-      fetchChats(false) // Don't show loading on subsequent loads
+      fetchChats(false)
     }
 
-    let currentChatId: string | null = null
-    // Get current chat ID from URL
-    if (typeof window !== 'undefined') {
-      const pathParts = window.location.pathname.split('/')
-      if (pathParts[1] === 'chat' && pathParts[2]) {
-        currentChatId = pathParts[2]
-      }
+    // Request notification permission
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission()
     }
+  }, [user])
 
   // --- SINGLE STABLE REALTIME CHANNEL ---
   useEffect(() => {
     if (!user) return
     
     const currentUserId = user.id
-    // Use a unique channel name per session to avoid conflicts
     const channelId = `sidebar_global_${currentUserId}_${Date.now()}`
     
     console.log('📡 [Sidebar] Setting up stable realtime channel:', channelId)
     
     const channel = supabase.channel(channelId)
-        // 1. Listen for new messages in ANY of my chats
         .on('postgres_changes', { 
             event: 'INSERT', 
             schema: 'public', 
@@ -408,13 +365,8 @@ export function Sidebar() {
         }, async (payload) => {
             const message = payload.new as any
             if (message.deleted_at && message.deleted_for_all) return
-            
-            // Fast check: is this message for one of my chats?
             if (!userChatIdsRef.current.includes(message.chat_id)) return
 
-            console.log('📩 [Sidebar] New message received:', message.id)
-            
-            // Fetch full message with sender
             const { data: fullMessage } = await supabase
                 .from('messages')
                 .select('*, sender:profiles(*)')
@@ -426,7 +378,6 @@ export function Sidebar() {
                 ? window.location.pathname.split('/').filter(Boolean)[1]
                 : null
 
-            // Notifications & Sound
             if (msgToUse.sender_id !== currentUserId && msgToUse.chat_id !== currentPathChatId) {
                 soundManager.playMessageReceived()
                 if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
@@ -435,12 +386,11 @@ export function Sidebar() {
                 }
             }
             
-            // Update chats state
             setChats(prevChats => {
                 const updated = [...prevChats]
                 const index = updated.findIndex(c => c.id === msgToUse.chat_id)
                 if (index === -1) {
-                    fetchChats(false) // New chat detected
+                    fetchChats(false)
                     return prevChats
                 }
                 
@@ -460,7 +410,6 @@ export function Sidebar() {
                 })
             })
         })
-        // 2. Listen for profile updates (online status)
         .on('postgres_changes', {
             event: 'UPDATE',
             schema: 'public',
@@ -471,10 +420,8 @@ export function Sidebar() {
                 setOnlineUsers(prev => { const next = new Set(prev); next.delete(updated.id); return next })
                 return
             }
-            
             const lastSeen = new Date(updated.last_seen_at)
             const diffMinutes = (new Date().getTime() - lastSeen.getTime()) / 60000
-            
             setOnlineUsers(prev => {
                 const next = new Set(prev)
                 if (diffMinutes < 2) next.add(updated.id)
@@ -482,21 +429,18 @@ export function Sidebar() {
                 return next
             })
         })
-        // 3. Listen for new chat memberships
         .on('postgres_changes', { 
             event: 'INSERT', 
             schema: 'public', 
             table: 'chat_members', 
             filter: `user_id=eq.${currentUserId}` 
         }, () => {
-            console.log('📬 [Sidebar] Added to new chat!')
             fetchChats(false)
         })
         .subscribe((status) => {
             console.log('📡 [Sidebar] Realtime status:', status)
         })
 
-    // Listen for custom "chatRead" event from ChatWindow
     const handleChatRead = (event: any) => {
         if (event.detail?.chatId) {
             setChats(prev => prev.map(c => c.id === event.detail.chatId ? { ...c, unreadCount: 0 } : c))
@@ -508,7 +452,6 @@ export function Sidebar() {
     }
 
     return () => { 
-        console.log('🧹 [Sidebar] Cleanup')
         if (typeof window !== 'undefined') {
             window.removeEventListener('chatRead', handleChatRead as EventListener)
         }
@@ -516,92 +459,51 @@ export function Sidebar() {
     }
   }, [user?.id])
 
-  // Search users logic
+  // Search logic
   useEffect(() => {
       const searchUsers = async () => {
-          if (!user) return
-          
-          // Only search if user has typed something starting with @
-          const trimmedQuery = searchQuery.trim()
-          if (!trimmedQuery || !trimmedQuery.startsWith('@')) {
+          if (!user || !searchQuery.trim() || !searchQuery.startsWith('@')) {
               setUsers([])
               setIsSearching(false)
               return
           }
-          
           setIsSearching(true)
-          
-          // Remove @ and search by username
-          const cleanQuery = trimmedQuery.replace('@', '').trim()
+          const cleanQuery = searchQuery.replace('@', '').trim()
           if (!cleanQuery) {
               setUsers([])
               setIsSearching(false)
               return
           }
-          
-          const { data } = await supabase
-              .from('profiles')
-              .select('*')
-              .neq('id', user.id)
-              .ilike('username', `%${cleanQuery}%`)
-          
+          const { data } = await supabase.from('profiles').select('*').neq('id', user.id).ilike('username', `%${cleanQuery}%`)
           if (data) setUsers(data as Profile[])
           setIsSearching(false)
       }
-
-      // Debounce search
       const timer = setTimeout(searchUsers, 300)
       return () => clearTimeout(timer)
   }, [searchQuery, user])
 
-  // Global search in all chats
   const searchAllMessages = async (query: string) => {
     if (!query.trim() || !user) {
       setGlobalSearchResults([])
       return
     }
-    
     setIsGlobalSearching(true)
     try {
-      // Use cached userChatIds if available
       let chatIds = userChatIds
-      
       if (chatIds.length === 0) {
-        const { data: memberData } = await supabase
-          .from('chat_members')
-          .select('chat_id')
-          .eq('user_id', user.id)
-        
-        if (!memberData || memberData.length === 0) {
-          setGlobalSearchResults([])
-          setIsGlobalSearching(false)
-          return
+        const { data } = await supabase.from('chat_members').select('chat_id').eq('user_id', user.id)
+        if (!data || data.length === 0) {
+          setGlobalSearchResults([]); setIsGlobalSearching(false); return
         }
-        chatIds = memberData.map(m => m.chat_id)
+        chatIds = data.map(m => m.chat_id)
         setUserChatIds(chatIds)
       }
-      
-      // Search messages in all chats
-      const { data: messages, error } = await supabase
-        .from('messages')
-        .select('*, sender:profiles(*), chats(id, name, type)')
-        .in('chat_id', chatIds)
-        .ilike('content', `%${query}%`)
-        .order('created_at', { ascending: false })
-        .limit(50)
-      
+      const { data: messages, error } = await supabase.from('messages').select('*, sender:profiles(*), chats(id, name, type)').in('chat_id', chatIds).ilike('content', `%${query}%`).order('created_at', { ascending: false }).limit(50)
       if (error) throw error
-      
-      // Group by chat and format results
-      const results = (messages || []).map((msg: any) => ({
-        message: msg,
-        chat: msg.chats,
-        sender: msg.sender
-      }))
-      
+      const results = (messages || []).map((msg: any) => ({ message: msg, chat: msg.chats, sender: msg.sender }))
       setGlobalSearchResults(results)
     } catch (error) {
-      console.error('Error searching messages:', error)
+      console.error('Error searching:', error)
       setGlobalSearchResults([])
     } finally {
       setIsGlobalSearching(false)
@@ -610,128 +512,48 @@ export function Sidebar() {
 
   const createChat = async (otherUserId: string) => {
       if (!user) return
-
       try {
-        // 1. Check for existing DM with this user
-        // Get all chats where I am a member
-        const { data: myChatMembers } = await supabase
-            .from('chat_members')
-            .select('chat_id')
-            .eq('user_id', user.id)
-        
+        const { data: myChatMembers } = await supabase.from('chat_members').select('chat_id').eq('user_id', user.id)
         if (myChatMembers && myChatMembers.length > 0) {
             const myChatIds = myChatMembers.map(m => m.chat_id)
-            
-            // Check if other user is in any of these chats AND the chat is a DM
-            const { data: commonChats } = await supabase
-                .from('chat_members')
-                .select('chat_id, chats!inner(type)')
-                .eq('user_id', otherUserId)
-                .in('chat_id', myChatIds)
-                .eq('chats.type', 'dm')
-                .limit(1)
-            
+            const { data: commonChats } = await supabase.from('chat_members').select('chat_id, chats!inner(type)').eq('user_id', otherUserId).in('chat_id', myChatIds).eq('chats.type', 'dm').limit(1)
             if (commonChats && commonChats.length > 0) {
-                // Found existing DM
-                const existingChatId = commonChats[0].chat_id
-                router.push(`/chat/${existingChatId}`)
-                setSearchQuery('')
-                setUsers([])
-                return
+                router.push(`/chat/${commonChats[0].chat_id}`)
+                setSearchQuery(''); setUsers([]); return
             }
         }
-        
-        // No existing chat found, create a new one
-        // 1. Create Chat
-        const { data: chatData, error: chatError } = await supabase
-            .from('chats')
-            .insert({ type: 'dm' })
-            .select()
-            .single()
-        
+        const { data: chatData, error: chatError } = await supabase.from('chats').insert({ type: 'dm' }).select().single()
         if (chatError) throw chatError
         if (!chatData) return
-
-        // 2. Add Members
-        const { error: memberError } = await supabase
-            .from('chat_members')
-            .insert([
-                { chat_id: chatData.id, user_id: user.id },
-                { chat_id: chatData.id, user_id: otherUserId }
-            ])
-        
-        if (memberError) throw memberError
-
-        // 3. Navigate
-        router.push(`/chat/${chatData.id}`)
-        setSearchQuery('')
-        setUsers([])
-        
-        // Refresh list (silent)
+        await supabase.from('chat_members').insert([{ chat_id: chatData.id, user_id: user.id }, { chat_id: chatData.id, user_id: otherUserId }])
+        router.push(`/chat/${chatData.id}`); setSearchQuery(''); setUsers([])
         fetchChats(false)
       } catch (e) {
-          console.error('Error creating chat:', e)
-          alert('Ошибка при создании чата')
+          console.error('Error creating chat:', e); alert('Ошибка при создании чата')
       }
   }
 
   const deleteChat = async (chatId: string, deleteForAll: boolean) => {
       if (!user) return
-      
       try {
           if (deleteForAll) {
-              // Delete chat completely (remove all members and messages)
-              // First, remove all members
-              const { error: membersError } = await supabase
-                  .from('chat_members')
-                  .delete()
-                  .eq('chat_id', chatId)
-              
-              if (membersError) throw membersError
-              
-              // Then delete the chat
-              const { error: chatError } = await supabase
-                  .from('chats')
-                  .delete()
-                  .eq('id', chatId)
-              
-              if (membersError) throw chatError
+              await supabase.from('chat_members').delete().eq('chat_id', chatId)
+              await supabase.from('chats').delete().eq('id', chatId)
           } else {
-              // Remove only current user from chat
-              const { error } = await supabase
-                  .from('chat_members')
-                  .delete()
-                  .eq('chat_id', chatId)
-                  .eq('user_id', user.id)
-              
-              if (error) throw error
+              await supabase.from('chat_members').delete().eq('chat_id', chatId).eq('user_id', user.id)
           }
-          
-          // Refresh chat list (silent)
           fetchChats(false)
-          
-          // If we're currently in this chat, redirect to chat list
-          if (window.location.pathname.includes(chatId)) {
-              router.push('/chat')
-          }
-          
+          if (window.location.pathname.includes(chatId)) router.push('/chat')
           setDeletingChatId(null)
       } catch (error) {
-          console.error('Error deleting chat:', error)
-          alert('Ошибка при удалении чата')
-          setDeletingChatId(null)
+          console.error('Error deleting chat:', error); alert('Ошибка при удалении чата'); setDeletingChatId(null)
       }
   }
 
   const fetchAvailableUsers = async () => {
     if (!user) return
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .neq('id', user.id)
-        .limit(50)
-      
+      const { data, error } = await supabase.from('profiles').select('*').neq('id', user.id).limit(50)
       if (error) throw error
       setAvailableUsers(data || [])
     } catch (error) {
@@ -741,47 +563,17 @@ export function Sidebar() {
 
   const createGroup = async () => {
     if (!user || !groupName.trim() || selectedUsers.length === 0) {
-      alert('Введите название группы и выберите участников')
-      return
+      alert('Введите название группы и выберите участников'); return
     }
-
     try {
-      // Create group chat
-      const { data: chatData, error: chatError } = await supabase
-        .from('chats')
-        .insert({
-          type: 'group',
-          name: groupName.trim(),
-          created_at: new Date().toISOString()
-        })
-        .select()
-        .single()
-
+      const { data: chatData, error: chatError } = await supabase.from('chats').insert({ type: 'group', name: groupName.trim(), created_at: new Date().toISOString() }).select().single()
       if (chatError) throw chatError
-
-      // Add current user and selected users to group
-      const members = [
-        { chat_id: chatData.id, user_id: user.id, created_at: new Date().toISOString() },
-        ...selectedUsers.map(userId => ({
-          chat_id: chatData.id,
-          user_id: userId,
-          created_at: new Date().toISOString()
-        }))
-      ]
-
-      const { error: membersError } = await supabase
-        .from('chat_members')
-        .insert(members)
-
+      const members = [{ chat_id: chatData.id, user_id: user.id, created_at: new Date().toISOString() }, ...selectedUsers.map(userId => ({ chat_id: chatData.id, user_id: userId, created_at: new Date().toISOString() }))]
+      const { error: membersError } = await supabase.from('chat_members').insert(members)
       if (membersError) throw membersError
-
-      setShowCreateGroup(false)
-      setGroupName('')
-      setSelectedUsers([])
-      router.push(`/chat/${chatData.id}`)
+      setShowCreateGroup(false); setGroupName(''); setSelectedUsers([]); router.push(`/chat/${chatData.id}`)
     } catch (error: any) {
-      console.error('Error creating group:', error)
-      alert(`Ошибка при создании группы: ${error.message || 'Неизвестная ошибка'}`)
+      console.error('Error creating group:', error); alert(`Ошибка при создании группы: ${error.message || 'Неизвестная ошибка'}`)
     }
   }
 
@@ -804,10 +596,7 @@ export function Sidebar() {
                 )}
             </button>
             <button 
-                onClick={() => {
-                  setShowCreateGroup(true)
-                  fetchAvailableUsers()
-                }}
+                onClick={() => { setShowCreateGroup(true); fetchAvailableUsers() }}
                 className="w-10 h-10 rounded-full bg-blue-500 hover:bg-blue-600 text-white flex items-center justify-center transition-colors"
                 title="Create Group"
             >
@@ -816,7 +605,6 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Search Bar - Always visible */}
       <div className="p-3 border-b border-gray-800 dark:border-gray-800 bg-[#17212B] dark:bg-[#17212B]">
         <div className="relative">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
@@ -825,18 +613,10 @@ export function Sidebar() {
                 placeholder="Поиск" 
                 value={searchQuery}
                 onChange={(e) => {
-                    const value = e.target.value
-                    setSearchQuery(value)
-                    if (value.trim() && value.startsWith('@')) {
-                        // Search users
-                    } else if (value.trim()) {
-                        // Search messages globally
-                        setShowGlobalSearch(true)
-                        searchAllMessages(value)
-                    } else {
-                        setShowGlobalSearch(false)
-                        setGlobalSearchResults([])
-                    }
+                    const value = e.target.value; setSearchQuery(value)
+                    if (value.trim() && value.startsWith('@')) {} 
+                    else if (value.trim()) { setShowGlobalSearch(true); searchAllMessages(value) } 
+                    else { setShowGlobalSearch(false); setGlobalSearchResults([]) }
                 }}
                 className="w-full pl-9 pr-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
             />
@@ -848,352 +628,68 @@ export function Sidebar() {
             <div className="p-2">
                 <div className="px-2 mb-2 flex items-center justify-between">
                     <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Результаты поиска</h3>
-                    <button
-                        onClick={() => {
-                            setShowGlobalSearch(false)
-                            setGlobalSearchQuery('')
-                            setGlobalSearchResults([])
-                            setSearchQuery('')
-                        }}
-                        className="p-1 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
-                    >
+                    <button onClick={() => { setShowGlobalSearch(false); setGlobalSearchQuery(''); setGlobalSearchResults([]); setSearchQuery('') }} className="p-1 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded">
                         <X className="w-4 h-4" />
                     </button>
                 </div>
-                
                 {isGlobalSearching ? (
                     <div className="text-center py-4 text-gray-400 text-sm">Поиск...</div>
                 ) : globalSearchResults.length > 0 ? (
                     <div className="space-y-2">
                         {globalSearchResults.map((result, idx) => (
-                            <div
-                                key={idx}
-                                onClick={() => {
-                                    router.push(`/chat/${result.chat.id}`)
-                                    setShowGlobalSearch(false)
-                                    setSearchQuery('')
-                                }}
-                                className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer transition-colors flex items-start gap-3"
-                            >
-                                {/* Avatar */}
+                            <div key={idx} onClick={() => { router.push(`/chat/${result.chat.id}`); setShowGlobalSearch(false); setSearchQuery('') }} className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer transition-colors flex items-start gap-3">
                                 <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700">
-                                    {result.sender?.avatar_url ? (
-                                        <img 
-                                            src={result.sender.avatar_url} 
-                                            className="w-full h-full object-cover" 
-                                            alt={result.sender.username || 'User'} 
-                                        />
-                                    ) : (
-                                        <span className="text-gray-600 dark:text-gray-300 font-semibold text-sm">
-                                            {(result.sender?.username?.[0] || result.sender?.full_name?.[0] || 'U').toUpperCase()}
-                                        </span>
-                                    )}
+                                    {result.sender?.avatar_url ? <img src={result.sender.avatar_url} className="w-full h-full object-cover" alt="U" /> : <span className="text-gray-600 dark:text-gray-300 font-semibold text-sm">{(result.sender?.username?.[0] || 'U').toUpperCase()}</span>}
                                 </div>
                                 <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2 mb-1">
-                                        <div className="text-xs font-semibold text-gray-900 dark:text-white">
-                                            {result.chat.type === 'dm' 
-                                                ? (result.sender?.full_name || result.sender?.username?.replace(/^@+/, '') || 'User')
-                                                : (result.chat.name || 'Chat')
-                                            }
-                                        </div>
-                                        <div className="text-xs text-gray-500">
-                                            {new Date(result.message.created_at).toLocaleDateString('ru-RU', { 
-                                                day: 'numeric', 
-                                                month: 'short',
-                                                hour: '2-digit',
-                                                minute: '2-digit'
-                                            })}
-                                        </div>
+                                        <div className="text-xs font-semibold text-gray-900 dark:text-white">{result.chat.type === 'dm' ? (result.sender?.full_name || 'User') : (result.chat.name || 'Chat')}</div>
+                                        <div className="text-xs text-gray-500">{new Date(result.message.created_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}</div>
                                     </div>
-                                    <div className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
-                                        {result.message.content}
-                                    </div>
+                                    <div className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">{result.message.content}</div>
                                 </div>
                             </div>
                         ))}
                     </div>
-                ) : searchQuery ? (
-                    <div className="text-center p-4 text-gray-400 text-sm">
-                        Ничего не найдено
-                    </div>
-                ) : null}
+                ) : <div className="text-center p-4 text-gray-400 text-sm">Ничего не найдено</div>}
             </div>
          ) : searchQuery && searchQuery.startsWith('@') ? (
             <div className="p-2">
-                {isSearching ? (
-                    <div className="text-center py-4 text-gray-400 text-sm">Поиск...</div>
-                ) : users.length === 0 ? (
-                    <div className="text-center p-4 text-gray-400 text-sm">
-                        {searchQuery ? `Пользователь не найден для "@${searchQuery.replace(/^@+/, '')}"` : "Введите @username для поиска"}
-                    </div>
-                ) : (
+                {isSearching ? <div className="text-center py-4 text-gray-400 text-sm">Поиск...</div> : users.length === 0 ? <div className="text-center p-4 text-gray-400 text-sm">Пользователь не найден</div> : (
                     <div className="space-y-1">
-                        {users.map(u => {
-                        const cleanUsername = u.username?.replace(/^@+/, '') || 'Anonymous'
-                        return (
-                        <div 
-                           key={u.id} 
-                           onClick={() => createChat(u.id)} 
-                           className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer flex items-center gap-3 transition-colors"
-                        >
-                            <div className="w-10 h-10 bg-gradient-to-br from-blue-400 to-indigo-500 rounded-full flex items-center justify-center shrink-0 text-white font-bold">
-                               {u.avatar_url ? (
-                                   <img src={u.avatar_url} className="w-10 h-10 rounded-full object-cover" alt={cleanUsername} />
-                               ) : (
-                                   (cleanUsername[0] || u.full_name?.[0] || 'U').toUpperCase()
-                               )}
-                            </div>
-                        <div className="min-w-0">
-                           <div className="truncate font-medium text-gray-900 dark:text-gray-100">
-                                {u.full_name || cleanUsername}
-                           </div>
-                           {u.full_name && (
-                               <div className="text-xs text-gray-500 truncate">@{cleanUsername}</div>
-                           )}
-                        </div>
-                        </div>
-                        )
-                        })}
-                    </div>
-                )}
-            </div>
-         ) : showGlobalSearch ? (
-            <div className="p-2">
-                <div className="px-2 mb-4">
-                    <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Поиск</h3>
-                        <button
-                            onClick={() => {
-                                setShowGlobalSearch(false)
-                                setGlobalSearchQuery('')
-                                setGlobalSearchResults([])
-                            }}
-                            className="p-1 text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 rounded"
-                        >
-                            <X className="w-4 h-4" />
-                        </button>
-                    </div>
-                    <div className="relative">
-                        <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
-                        <input 
-                            type="text" 
-                            placeholder="Поиск" 
-                            value={globalSearchQuery}
-                            onChange={(e) => {
-                                setGlobalSearchQuery(e.target.value)
-                                searchAllMessages(e.target.value)
-                            }}
-                            className="w-full pl-9 pr-4 py-2 bg-gray-100 dark:bg-gray-800 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-                            autoFocus
-                        />
-                    </div>
-                </div>
-                
-                {isGlobalSearching ? (
-                    <div className="text-center py-4 text-gray-400 text-sm">Поиск...</div>
-                ) : globalSearchResults.length > 0 ? (
-                    <div className="space-y-2">
-                        {globalSearchResults.map((result, idx) => (
-                            <div
-                                key={idx}
-                                onClick={() => {
-                                    router.push(`/chat/${result.chat.id}`)
-                                    setShowGlobalSearch(false)
-                                }}
-                                className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer transition-colors"
-                            >
-                                <div className="flex items-center gap-2 mb-1">
-                                    <div className="text-xs font-semibold text-gray-900 dark:text-white">
-                                        {result.chat.type === 'dm' 
-                                            ? (result.sender?.full_name || result.sender?.username?.replace(/^@+/, '') || 'User')
-                                            : (result.chat.name || 'Chat')
-                                        }
-                                    </div>
-                                    <div className="text-xs text-gray-500">
-                                        {new Date(result.message.created_at).toLocaleDateString('ru-RU', { 
-                                            day: 'numeric', 
-                                            month: 'short',
-                                            hour: '2-digit',
-                                            minute: '2-digit'
-                                        })}
-                                    </div>
+                        {users.map(u => (
+                            <div key={u.id} onClick={() => createChat(u.id)} className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer flex items-center gap-3 transition-colors">
+                                <div className="w-10 h-10 bg-gray-200 dark:bg-gray-700 rounded-full flex items-center justify-center shrink-0 overflow-hidden">
+                                    {u.avatar_url ? <img src={u.avatar_url} className="w-full h-full object-cover" alt="U" /> : <span className="text-gray-600 dark:text-gray-300 font-semibold text-sm">{(u.username?.[0] || 'U').toUpperCase()}</span>}
                                 </div>
-                                <div className="text-sm text-gray-700 dark:text-gray-300 line-clamp-2">
-                                    {result.message.content}
-                                </div>
+                                <div className="min-w-0 flex-1"><div className="truncate font-medium text-gray-900 dark:text-gray-100">{u.full_name || u.username}</div><div className="text-xs text-gray-500 truncate">@{u.username}</div></div>
                             </div>
                         ))}
-                    </div>
-                ) : globalSearchQuery ? (
-                    <div className="text-center p-4 text-gray-400 text-sm">
-                        Ничего не найдено
-                    </div>
-                ) : (
-                    <div className="text-center p-4 text-gray-400 text-sm">
-                        Введите запрос для поиска
                     </div>
                 )}
             </div>
          ) : isLoadingChats ? (
-                <div className="p-8 text-center text-gray-500">
-                    <div className="animate-pulse flex flex-col items-center">
-                        <div className="h-12 w-12 bg-gray-200 dark:bg-gray-700 rounded-full mb-4"></div>
-                        <p>Загрузка чатов...</p>
-                    </div>
-                </div>
+                <div className="p-8 text-center text-gray-500"><div className="animate-pulse flex flex-col items-center"><div className="h-12 w-12 bg-gray-200 dark:bg-gray-700 rounded-full mb-4"></div><p>Загрузка чатов...</p></div></div>
             ) : chats.length === 0 ? (
-                <div className="p-8 text-center text-gray-500">
-                    <p className="mb-2">No chats yet.</p>
-                    <p className="text-sm">Начните поиск выше</p>
-                </div>
+                <div className="p-8 text-center text-gray-500"><p className="mb-2">No chats yet.</p><p className="text-sm">Начните поиск выше</p></div>
             ) : (
                 <div className="flex flex-col">
                     {chats.map((chat: any) => {
-                        const displayName = chat.type === 'dm' 
-                            ? (chat.name === 'Избранное' ? 'Избранное' : (chat.otherUser?.full_name || chat.otherUser?.username?.replace(/^@+/, '') || 'User'))
-                            : (chat.name || 'Chat')
+                        const displayName = chat.type === 'dm' ? (chat.name === 'Избранное' ? 'Избранное' : (chat.otherUser?.full_name || chat.otherUser?.username || 'User')) : (chat.name || 'Chat')
                         const avatarUrl = chat.type === 'dm' ? chat.otherUser?.avatar_url : null
                         const lastMsg = chat.lastMessage
                         const unreadCount = chat.unreadCount || 0
-                        
-                        // Format last message preview
-                        let lastMsgPreview = 'No messages yet'
-                        if (lastMsg) {
-                            const isFromMe = lastMsg.sender_id === user?.id
-                            let senderName = 'User'
-                            if (isFromMe) {
-                                senderName = 'Вы'
-                            } else if (lastMsg.sender) {
-                                // Use full_name first, or username without @
-                                senderName = lastMsg.sender.full_name || (lastMsg.sender.username?.replace(/^@/, '') || 'User')
-                            }
-                            const content = lastMsg.attachments?.length > 0 
-                                ? (lastMsg.attachments[0].type === 'voice' ? '🎤 Голосовое сообщение' : '📎 Вложение')
-                                : lastMsg.content
-                            lastMsgPreview = `${senderName}: ${content}`
-                        }
-                        
-                        // Format time
-                        let timeStr = ''
-                        if (lastMsg?.created_at) {
-                            const msgDate = new Date(lastMsg.created_at)
-                            const now = new Date()
-                            const diffMs = now.getTime() - msgDate.getTime()
-                            const diffMins = Math.floor(diffMs / 60000)
-                            const diffHours = Math.floor(diffMs / 3600000)
-                            const diffDays = Math.floor(diffMs / 86400000)
-                            
-                            if (diffMins < 1) timeStr = 'только что'
-                            else if (diffMins < 60) timeStr = `${diffMins}м`
-                            else if (diffHours < 24) timeStr = `${diffHours}ч`
-                            else if (diffDays < 7) timeStr = `${diffDays}д`
-                            else timeStr = msgDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })
-                        }
-                        
+                        let lastMsgPreview = lastMsg ? `${lastMsg.sender_id === user?.id ? 'Вы' : (lastMsg.sender?.full_name || 'User')}: ${lastMsg.content}` : 'No messages yet'
                         return (
-                            <div 
-                                key={chat.id} 
-                                onContextMenu={(e) => handleContextMenu(e, chat.id)}
-                                className="px-3 py-2.5 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] cursor-pointer border-b border-gray-800 dark:border-gray-800 transition-colors flex items-center gap-3 relative group"
-                            >
-                                <div 
-                                    onClick={() => router.push(`/chat/${chat.id}`)} 
-                                    className="flex items-center gap-3 flex-1 min-w-0"
-                                >
-                                    {/* Avatar */}
-                                    <div className="relative w-14 h-14 rounded-full flex items-center justify-center shrink-0 overflow-visible bg-gray-200 dark:bg-gray-700">
-                                        <div className="w-14 h-14 rounded-full overflow-hidden flex items-center justify-center">
-                                            {avatarUrl ? (
-                                                <img src={avatarUrl} className="w-full h-full object-cover" alt={displayName} />
-                                            ) : (
-                                                <span className="text-gray-600 dark:text-gray-300 font-semibold text-lg flex items-center justify-center">
-                                                    {displayName[0]?.toUpperCase() || '?'}
-                                                </span>
-                                            )}
-                                        </div>
-                                        {/* Online indicator - частично на аватаре, частично на фоне */}
-                                        {chat.type === 'dm' && chat.otherUser && chat.otherUser.id !== user?.id && onlineUsers.has(chat.otherUser.id) && (
-                                            <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full z-10" style={{ transform: 'translate(25%, 25%)' }}></div>
-                                        )}
+                            <div key={chat.id} onContextMenu={(e) => handleContextMenu(e, chat.id)} className="px-3 py-2.5 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] cursor-pointer border-b border-gray-800 dark:border-gray-800 transition-colors flex items-center gap-3 relative group">
+                                <div onClick={() => router.push(`/chat/${chat.id}`)} className="flex items-center gap-3 flex-1 min-w-0">
+                                    <div className="relative w-14 h-14 rounded-full flex items-center justify-center shrink-0 bg-gray-200 dark:bg-gray-700">
+                                        <div className="w-14 h-14 rounded-full overflow-hidden flex items-center justify-center">{avatarUrl ? <img src={avatarUrl} className="w-full h-full object-cover" alt="U" /> : <span className="text-gray-600 dark:text-gray-300 font-semibold text-lg">{(displayName[0] || 'U').toUpperCase()}</span>}</div>
+                                        {chat.type === 'dm' && chat.otherUser && chat.otherUser.id !== user?.id && onlineUsers.has(chat.otherUser.id) && <div className="absolute bottom-0 right-0 w-4 h-4 bg-green-500 border-2 border-white dark:border-gray-900 rounded-full z-10" style={{ transform: 'translate(25%, 25%)' }}></div>}
                                     </div>
-                                    
-                                    {/* Chat info */}
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex items-center justify-between mb-0.5">
-                                            <div className="font-medium text-gray-900 dark:text-gray-100 truncate text-[15px]">
-                                                {displayName}
-                                            </div>
-                                            {timeStr && (
-                                                <div className="text-xs text-gray-500 dark:text-gray-400 ml-2 shrink-0">{timeStr}</div>
-                                            )}
-                                        </div>
-                                        <div className="flex items-center justify-between gap-2">
-                                            <div className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">
-                                                {lastMsgPreview}
-                                            </div>
-                                            {unreadCount > 0 && (
-                                                <div className="bg-blue-500 text-white text-xs font-semibold rounded-full px-1.5 py-0.5 min-w-[18px] h-[18px] text-center shrink-0 flex items-center justify-center">
-                                                    {unreadCount > 99 ? '99+' : unreadCount}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
+                                    <div className="flex-1 min-w-0"><div className="flex items-center justify-between mb-0.5"><div className="font-medium text-gray-900 dark:text-gray-100 truncate text-[15px]">{displayName}</div></div><div className="flex items-center justify-between gap-2"><div className="text-sm text-gray-500 dark:text-gray-400 truncate flex-1">{lastMsgPreview}</div>{unreadCount > 0 && <div className="bg-blue-500 text-white text-xs font-semibold rounded-full px-1.5 py-0.5 min-w-[18px] h-[18px] text-center shrink-0 flex items-center justify-center">{unreadCount}</div>}</div></div>
                                 </div>
-                                
-                                {/* Chat Context Menu */}
-                                {contextMenu?.chatId === chat.id && contextMenu && (
-                                    <div 
-                                        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
-                                        style={{ top: contextMenu.y, left: contextMenu.x }}
-                                    >
-                                        <button
-                                            onClick={(e) => {
-                                                e.stopPropagation()
-                                                setDeletingChatId(chat.id)
-                                                setContextMenu(null)
-                                            }}
-                                            className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
-                                        >
-                                            <Trash2 className="w-4 h-4" />
-                                            Удалить чат
-                                        </button>
-                                    </div>
-                                )}
-
-                                {/* Delete Confirmation Modal */}
-                                {deletingChatId === chat.id && (
-                                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-                                        <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl max-w-md w-full p-6">
-                                            <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-4">
-                                                Удалить чат?
-                                            </h3>
-                                            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                                                Выберите способ удаления:
-                                            </p>
-                                            <div className="space-y-2">
-                                                <button
-                                                    onClick={() => deleteChat(chat.id, false)}
-                                                    className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-                                                >
-                                                    Удалить только для меня
-                                                </button>
-                                                <button
-                                                    onClick={() => deleteChat(chat.id, true)}
-                                                    className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-                                                >
-                                                    Удалить для всех
-                                                </button>
-                                                <button
-                                                    onClick={() => setDeletingChatId(null)}
-                                                    className="w-full px-4 py-2 text-sm text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg"
-                                                >
-                                                    Отмена
-                                                </button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+                                {contextMenu?.chatId === chat.id && <div className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]" style={{ top: contextMenu.y, left: contextMenu.x }}><button onClick={(e) => { e.stopPropagation(); setDeletingChatId(chat.id); setContextMenu(null) }} className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"><Trash2 className="w-4 h-4" />Удалить чат</button></div>}
                             </div>
                         )
                     })}
@@ -1201,120 +697,30 @@ export function Sidebar() {
             )}
       </div>
 
-      {/* Bottom Footer - Settings and Logout */}
       <div className="mt-auto p-4 border-t border-gray-800 dark:border-gray-800 bg-[#17212B] dark:bg-[#17212B] shrink-0">
         <div className="flex gap-2">
-          <button 
-            onClick={() => router.push('/chat/settings')} 
-            className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            <Settings className="w-4 h-4" />
-            <span>Настройки</span>
-          </button>
-          <button 
-            onClick={() => { signOut(); router.push('/login') }} 
-            className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2"
-          >
-            <LogOut className="w-4 h-4" />
-            <span>Выход</span>
-          </button>
+          <button onClick={() => router.push('/chat/settings')} className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2"><Settings className="w-4 h-4" /><span>Настройки</span></button>
+          <button onClick={() => { signOut(); router.push('/login') }} className="flex-1 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors flex items-center justify-center gap-2"><LogOut className="w-4 h-4" /><span>Выход</span></button>
         </div>
       </div>
 
-      {/* Create Group Modal */}
       {showCreateGroup && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setShowCreateGroup(false)}>
           <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900 dark:text-white">Создать группу</h2>
-              <button onClick={() => setShowCreateGroup(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded">
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-            
+            <div className="p-4 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between"><h2 className="text-xl font-bold text-gray-900 dark:text-white">Создать группу</h2><button onClick={() => setShowCreateGroup(false)} className="p-1 hover:bg-gray-100 dark:hover:bg-gray-700 rounded"><X className="w-5 h-5 text-gray-500" /></button></div>
             <div className="p-4 flex-1 overflow-y-auto space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Название группы
-                </label>
-                <input
-                  type="text"
-                  value={groupName}
-                  onChange={(e) => setGroupName(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                  placeholder="Введите название группы"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Участники ({selectedUsers.length})
-                </label>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
+              <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Название группы</label><input type="text" value={groupName} onChange={(e) => setGroupName(e.target.value)} className="w-full px-4 py-2 border border-gray-300 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-900 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 outline-none" placeholder="Введите название группы" /></div>
+              <div><label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Участники ({selectedUsers.length})</label><div className="space-y-2 max-h-60 overflow-y-auto">
                   {availableUsers.map((userProfile) => (
-                    <div
-                      key={userProfile.id}
-                      onClick={() => {
-                        if (selectedUsers.includes(userProfile.id)) {
-                          setSelectedUsers(selectedUsers.filter(id => id !== userProfile.id))
-                        } else {
-                          setSelectedUsers([...selectedUsers, userProfile.id])
-                        }
-                      }}
-                      className={`p-3 rounded-lg cursor-pointer transition-colors flex items-center gap-3 ${
-                        selectedUsers.includes(userProfile.id)
-                          ? 'bg-blue-100 dark:bg-blue-900/30 border-2 border-blue-500'
-                          : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
-                      }`}
-                    >
-                      <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">
-                        {userProfile.avatar_url ? (
-                          <img src={userProfile.avatar_url} className="w-full h-full object-cover" alt={userProfile.username || 'User'} />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-sm font-bold text-gray-500">
-                            {userProfile.username?.[1]?.toUpperCase() || userProfile.full_name?.[0]?.toUpperCase() || 'U'}
-                          </div>
-                        )}
-                      </div>
-                      <div className="flex-1">
-                        <div className="font-medium text-gray-900 dark:text-white">
-                          {userProfile.full_name || userProfile.username?.replace(/^@+/, '') || 'User'}
-                        </div>
-                        {userProfile.username && (
-                          <div className="text-sm text-gray-500 dark:text-gray-400">
-                            @{userProfile.username.replace(/^@+/, '')}
-                          </div>
-                        )}
-                      </div>
-                      {selectedUsers.includes(userProfile.id) && (
-                        <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center">
-                          <span className="text-white text-xs">✓</span>
-                        </div>
-                      )}
+                    <div key={userProfile.id} onClick={() => { if (selectedUsers.includes(userProfile.id)) { setSelectedUsers(selectedUsers.filter(id => id !== userProfile.id)) } else { setSelectedUsers([...selectedUsers, userProfile.id]) } }} className={`p-3 rounded-lg cursor-pointer transition-colors flex items-center gap-3 ${selectedUsers.includes(userProfile.id) ? 'bg-blue-100 dark:bg-blue-900/30 border-2 border-blue-500' : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'}`}>
+                      <div className="w-10 h-10 rounded-full bg-gray-200 dark:bg-gray-600 overflow-hidden">{userProfile.avatar_url ? <img src={userProfile.avatar_url} className="w-full h-full object-cover" alt="U" /> : <div className="w-full h-full flex items-center justify-center text-sm font-bold text-gray-500">{(userProfile.username?.[0] || 'U').toUpperCase()}</div>}</div>
+                      <div className="flex-1"><div className="font-medium text-gray-900 dark:text-white">{userProfile.full_name || userProfile.username}</div><div className="text-sm text-gray-500 dark:text-gray-400">@{userProfile.username}</div></div>
+                      {selectedUsers.includes(userProfile.id) && <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center"><span className="text-white text-xs">✓</span></div>}
                     </div>
                   ))}
-                </div>
-              </div>
+                </div></div>
             </div>
-
-            <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex gap-2">
-              <button
-                onClick={() => {
-                  setShowCreateGroup(false)
-                  setGroupName('')
-                  setSelectedUsers([])
-                }}
-                className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors"
-              >
-                Отмена
-              </button>
-              <button
-                onClick={createGroup}
-                className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors"
-              >
-                Создать
-              </button>
-            </div>
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 flex gap-2"><button onClick={() => { setShowCreateGroup(false); setGroupName(''); setSelectedUsers([]) }} className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-900 dark:text-white rounded-lg transition-colors">Отмена</button><button onClick={createGroup} className="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors">Создать</button></div>
           </div>
         </div>
       )}
