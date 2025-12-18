@@ -309,17 +309,14 @@ export default function SettingsPage() {
             </button>
           </div>
         </div>
-
-        </div>
-
-        {saving && (
-          <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-4 py-2 rounded-lg shadow-lg text-sm text-gray-500 flex items-center gap-2">
-            <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
-            Сохранение...
-          </div>
-        )}
       </div>
+
+      {saving && (
+        <div className="fixed bottom-4 right-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-4 py-2 rounded-lg shadow-lg text-sm text-gray-500 flex items-center gap-2">
+          <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse" />
+          Сохранение...
+        </div>
+      )}
     </div>
   )
 }
-
