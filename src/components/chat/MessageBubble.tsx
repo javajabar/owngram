@@ -31,6 +31,7 @@ interface MessageBubbleProps {
   onUserClick?: (userId: string) => void
   isSelected?: boolean
   isSelectionMode?: boolean
+  currentUserProfile?: Profile | null
 }
 
 export function MessageBubble({ 
@@ -46,7 +47,8 @@ export function MessageBubble({
   onSelect,
   onUserClick,
   isSelected = false,
-  isSelectionMode = false
+  isSelectionMode = false,
+  currentUserProfile
 }: MessageBubbleProps) {
   const { user } = useAuthStore()
   const isMe = user?.id === message.sender_id
@@ -201,7 +203,7 @@ export function MessageBubble({
     e.preventDefault()
     e.stopPropagation()
     if (onReaction) {
-      onReaction(message.id, user?.default_reaction || '❤️')
+      onReaction(message.id, currentUserProfile?.default_reaction || '❤️')
     }
   }
 
@@ -658,7 +660,7 @@ export function MessageBubble({
                 )}
               >
                 <span className={cn(
-                  (emoji === '🍌' || emoji === user?.default_reaction) && "animate-bounce origin-bottom inline-block", 
+                  (emoji === '🍌' || emoji === currentUserProfile?.default_reaction) && "animate-bounce origin-bottom inline-block", 
                   "transition-transform"
                 )}>{emoji}</span>
                 {userIds.length > 1 && <span className="font-bold">{userIds.length}</span>}

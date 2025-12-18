@@ -71,6 +71,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const [viewingAvatar, setViewingAvatar] = useState<string | null>(null)
   const [isBlockedByMe, setIsBlockedByMe] = useState(false)
   const [isBlockingMe, setIsBlockingMe] = useState(false)
+  const [myProfile, setMyProfile] = useState<Profile | null>(null)
   
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false)
   const [avatarPreview, setAvatarPreview] = useState<string | null>(null)
@@ -104,6 +105,17 @@ export function ChatWindow({ chatId }: { chatId: string }) {
   const { incomingCall: globalIncomingCall, clearIncomingCall } = useCallStore()
   const router = useRouter()
   
+  useEffect(() => {
+    if (!user) return
+    
+    const fetchMyProfile = async () => {
+      const profile = await profileCache.fetch(user.id, supabase)
+      setMyProfile(profile)
+    }
+    
+    fetchMyProfile()
+  }, [user?.id])
+
   // Check block status
   const checkBlockStatus = useCallback(async () => {
     if (!user || !otherUser || chat?.type !== 'dm') {
@@ -1774,6 +1786,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                         onUserClick={navigateToUserChat}
                         isSelected={selectedMessageIds.has(msg.id)}
                         isSelectionMode={isSelectionMode}
+                        currentUserProfile={myProfile}
                     />
                 )
             })}
