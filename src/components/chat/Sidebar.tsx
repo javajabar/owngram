@@ -105,7 +105,43 @@ export function Sidebar() {
   }, [chats, user?.id])
 
   const openContextMenu = (x: number, y: number, chatId: string) => {
-    setContextMenu({ x, y, chatId })
+    // Calculate menu position with boundary checks for mobile
+    const menuWidth = 160
+    const menuHeight = 60
+    const padding = 10
+    
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const isMobile = viewportWidth < 768
+    
+    let menuX = x
+    let menuY = y
+    
+    // Horizontal positioning
+    if (isMobile) {
+      // Center horizontally on mobile
+      menuX = Math.max(padding, (viewportWidth - menuWidth) / 2)
+    } else {
+      if (menuX + menuWidth + padding > viewportWidth) {
+        menuX = Math.max(padding, viewportWidth - menuWidth - padding)
+      }
+      if (menuX < padding) menuX = padding
+    }
+    
+    // Vertical positioning
+    if (menuY + menuHeight + padding > viewportHeight) {
+      menuY = Math.max(padding, viewportHeight - menuHeight - padding)
+    }
+    if (menuY < padding) {
+      menuY = padding
+    }
+    
+    // On mobile, prefer bottom positioning
+    if (isMobile && y > viewportHeight * 0.6) {
+      menuY = Math.max(padding, viewportHeight - menuHeight - padding)
+    }
+    
+    setContextMenu({ x: menuX, y: menuY, chatId })
   }
 
   const handleContextMenu = (e: React.MouseEvent, chatId: string) => {
@@ -947,8 +983,12 @@ export function Sidebar() {
                                 </div>
                                 {contextMenu && contextMenu.chatId === chat.id && (
                                     <div 
-                                        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
-                                        style={{ top: contextMenu.y, left: contextMenu.x }}
+                                        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px] max-w-[calc(100vw-20px)]"
+                                        style={{ 
+                                          top: `${contextMenu.y}px`, 
+                                          left: `${contextMenu.x}px`,
+                                          maxHeight: 'calc(100vh - 20px)'
+                                        }}
                                     >
                                         <button onClick={(e) => { e.stopPropagation(); setDeletingChatId(chat.id); setContextMenu(null) }} className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2">
                                             <Trash2 className="w-4 h-4" />

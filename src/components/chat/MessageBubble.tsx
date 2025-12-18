@@ -5,7 +5,7 @@ import { useAuthStore } from '@/store/useAuthStore'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
-import { Play, Pause, Check, CheckCheck, MoreVertical, Edit, Trash2, Reply, X, Paperclip, Share2, Copy, CheckCircle2, Phone, PhoneOff, PhoneIncoming, PhoneOutgoing, PhoneMissed } from 'lucide-react'
+import { Play, Pause, Check, CheckCheck, MoreVertical, Edit, Trash2, Reply, X, Paperclip, Share2, Copy, CheckCircle2, Phone, PhoneOff, PhoneIncoming, PhoneOutgoing, PhoneMissed, Forward } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { profileCache } from '@/lib/cache'
 import { REACTIONS_LIST } from '@/lib/constants'
@@ -238,13 +238,38 @@ export function MessageBubble({
     const menuHeight = 250 // approximate height
     const padding = 10
     
+    // Get actual viewport dimensions (accounting for mobile keyboard)
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    
     let menuX = x
     let menuY = y
     
-    if (menuX + menuWidth + padding > window.innerWidth) menuX = x - menuWidth
-    if (menuX < padding) menuX = padding
-    if (menuY + menuHeight + padding > window.innerHeight) menuY = y - menuHeight
-    if (menuY < padding) menuY = padding
+    // Horizontal positioning - prefer center on mobile
+    const isMobile = viewportWidth < 768
+    if (isMobile) {
+      // Center horizontally on mobile
+      menuX = Math.max(padding, (viewportWidth - menuWidth) / 2)
+    } else {
+      // Desktop: position relative to click
+      if (menuX + menuWidth + padding > viewportWidth) {
+        menuX = Math.max(padding, viewportWidth - menuWidth - padding)
+      }
+      if (menuX < padding) menuX = padding
+    }
+    
+    // Vertical positioning - ensure menu is always visible
+    if (menuY + menuHeight + padding > viewportHeight) {
+      menuY = Math.max(padding, viewportHeight - menuHeight - padding)
+    }
+    if (menuY < padding) {
+      menuY = padding
+    }
+    
+    // On mobile, prefer bottom positioning if near bottom
+    if (isMobile && y > viewportHeight * 0.6) {
+      menuY = Math.max(padding, viewportHeight - menuHeight - padding)
+    }
     
     setContextMenu({ x, y })
     setMenuPosition({ x: menuX, y: menuY })
@@ -697,10 +722,12 @@ export function MessageBubble({
             ref={menuRef}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
-            className="fixed z-50 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-2 min-w-[200px] overflow-hidden"
+            className="fixed z-50 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-2 min-w-[200px] max-w-[calc(100vw-20px)] overflow-hidden"
             style={{ 
               top: `${menuPosition.y}px`,
-              left: `${menuPosition.x}px`
+              left: `${menuPosition.x}px`,
+              maxHeight: 'calc(100vh - 20px)',
+              overflowY: 'auto'
             }}
           >
             {/* Reactions Grid */}
@@ -735,9 +762,9 @@ export function MessageBubble({
             </button>
             <button
               onClick={() => { onForward?.(message); setContextMenu(null) }}
-              className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 transition-colors"
+              className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 transition-all duration-300 ease-in-out hover:scale-[1.02] active:scale-95"
             >
-              <Share2 className="w-4 h-4 opacity-70" />
+              <Forward className="w-4 h-4 opacity-70" />
               Переслать
             </button>
             <button
@@ -775,10 +802,11 @@ export function MessageBubble({
             ref={menuRef}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
-            className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3 min-w-[200px]"
+            className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3 min-w-[200px] max-w-[calc(100vw-20px)]"
             style={{ 
               top: `${menuPosition.y}px`,
-              left: `${menuPosition.x}px`
+              left: `${menuPosition.x}px`,
+              maxHeight: 'calc(100vh - 20px)'
             }}
           >
             <div className="text-sm font-medium mb-2 text-gray-900 dark:text-white">Удалить сообщение?</div>

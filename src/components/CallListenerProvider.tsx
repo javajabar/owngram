@@ -21,9 +21,26 @@ export default function CallListenerProvider({ children }: { children: React.Rea
     const currentUserId = user.id
     console.log('📞 Setting up global call listener for user:', currentUserId)
 
+    // Remove any existing channel with the same name first
+    const channelName = `global-calls-${currentUserId}`
+    try {
+      const existingChannel = supabase.getChannels().find(ch => ch.topic === channelName)
+      if (existingChannel) {
+        console.log('🧹 Removing existing global call channel')
+        supabase.removeChannel(existingChannel)
+      }
+    } catch (e) {
+      console.warn('⚠️ Error checking for existing channel:', e)
+    }
+
     // Global listener for incoming calls (works from anywhere, independent of UI)
     const globalCallChannel = supabase
-      .channel(`global-calls-${currentUserId}`)
+      .channel(channelName, {
+        config: {
+          broadcast: { self: true },
+          presence: { key: currentUserId }
+        }
+      })
       .on(
         'postgres_changes',
         {
@@ -90,18 +107,26 @@ export default function CallListenerProvider({ children }: { children: React.Rea
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status, err) => {
         console.log('📡 Global call channel subscription status:', status)
         if (status === 'SUBSCRIBED') {
           console.log('✅ Successfully subscribed to global call signals')
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Error subscribing to global call signals')
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn(`⚠️ Global call channel status: ${status}`, err || '')
+          // Don't log as error if it's just a timeout or closed status
+          if (status === 'CHANNEL_ERROR' && err) {
+            console.error('❌ Error details:', err)
+          }
         }
       })
 
     return () => {
       console.log('🧹 Cleaning up global call listener')
-      supabase.removeChannel(globalCallChannel)
+      try {
+        supabase.removeChannel(globalCallChannel)
+      } catch (e) {
+        console.warn('⚠️ Error removing global call channel:', e)
+      }
     }
   }, [user?.id, router, setIncomingCall])
 

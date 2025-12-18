@@ -1251,8 +1251,25 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
     const currentUserId = user.id // Capture user ID in closure to avoid stale closures
     console.log('🔔 Setting up call listener for chat:', chatId, 'user:', currentUserId, 'chatType:', chat?.type || 'loading...')
 
+    // Remove any existing channel with the same name first
+    const channelName = `calls-${chatId}-${currentUserId}`
+    try {
+      const existingChannel = supabase.getChannels().find(ch => ch.topic === channelName)
+      if (existingChannel) {
+        console.log('🧹 Removing existing call channel')
+        supabase.removeChannel(existingChannel)
+      }
+    } catch (e) {
+      console.warn('⚠️ Error checking for existing channel:', e)
+    }
+
     const channel = supabase
-      .channel(`calls-${chatId}-${currentUserId}`)
+      .channel(channelName, {
+        config: {
+          broadcast: { self: true },
+          presence: { key: currentUserId }
+        }
+      })
       .on(
         'postgres_changes',
         {
@@ -1354,12 +1371,16 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
           }
         }
       )
-      .subscribe((status) => {
+      .subscribe((status, err) => {
         console.log('📡 Call channel subscription status:', status)
         if (status === 'SUBSCRIBED') {
           console.log('✅ Successfully subscribed to call signals')
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Error subscribing to call signals')
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn(`⚠️ Call channel status: ${status}`, err || '')
+          // Don't log as error if it's just a timeout or closed status
+          if (status === 'CHANNEL_ERROR' && err) {
+            console.error('❌ Error details:', err)
+          }
         }
       })
 
@@ -1414,7 +1435,11 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
     return () => {
       console.log('🧹 Cleaning up call listener')
       clearInterval(pollInterval)
-      supabase.removeChannel(channel)
+      try {
+        supabase.removeChannel(channel)
+      } catch (e) {
+        console.warn('⚠️ Error removing call channel:', e)
+      }
     }
   }, [chatId, user?.id, chat?.type])
 
@@ -1662,6 +1687,8 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
     return () => clearTimeout(timeoutId)
   }, [searchQuery, showSearch, chatId])
 
+  const messageInputRef = useRef<HTMLInputElement>(null)
+
   const sendMessage = async (e?: React.FormEvent) => {
     e?.preventDefault()
     if (!newMessage.trim() || !user) return
@@ -1687,6 +1714,10 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
         setNewMessage('')
         setReplyingTo(null)
       }
+      // Keep focus on input after editing
+      setTimeout(() => {
+        messageInputRef.current?.focus()
+      }, 50)
       return
     }
 
@@ -1713,6 +1744,11 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
 
     // Scroll to bottom immediately
     setTimeout(scrollToBottom, 50)
+    
+    // Keep keyboard open on mobile by refocusing input
+    setTimeout(() => {
+      messageInputRef.current?.focus()
+    }, 100)
 
     try {
       const { error, data } = await supabase.from('messages').insert({
@@ -2535,13 +2571,29 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
                         e.preventDefault()
                         sendMessage(e)
                         setIsTyping(false)
+                        // Keep focus on mobile
+                        setTimeout(() => {
+                            messageInputRef.current?.focus()
+                        }, 50)
                     }
                 }}
+                ref={messageInputRef}
                 placeholder={editingMessage ? "Редактировать сообщение..." : replyingTo ? "Ответить..." : "Message..."}
                 className="flex-1 px-4 py-3 bg-gray-100 dark:bg-gray-800 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 outline-none text-gray-900 dark:text-white transition-all"
             />
             {newMessage.trim() ? (
-                <button type="submit" className="p-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-all active:scale-95 shadow-md">
+                <button 
+                    type="button"
+                    onClick={(e) => {
+                        e.preventDefault()
+                        sendMessage(e)
+                        // Keep focus on input to prevent keyboard from closing
+                        setTimeout(() => {
+                            messageInputRef.current?.focus()
+                        }, 50)
+                    }}
+                    className="p-3 bg-blue-500 hover:bg-blue-600 text-white rounded-full transition-all active:scale-95 shadow-md"
+                >
                     {editingMessage ? <span className="text-sm">✓</span> : <Send className="w-5 h-5" />}
                 </button>
             ) : (
