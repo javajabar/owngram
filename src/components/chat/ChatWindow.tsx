@@ -412,6 +412,55 @@ export function ChatWindow({ chatId }: { chatId: string }) {
     }
   }
 
+  const navigateToUserChat = async (userId: string) => {
+    if (!user || userId === user.id) return
+    
+    // Check if DM already exists
+    const { data: myChatMembers } = await supabase
+      .from('chat_members')
+      .select('chat_id')
+      .eq('user_id', user.id)
+    
+    if (myChatMembers && myChatMembers.length > 0) {
+      const myChatIds = myChatMembers.map(m => m.chat_id)
+      const { data: commonChats } = await supabase
+        .from('chat_members')
+        .select('chat_id, chats!inner(type)')
+        .eq('user_id', userId)
+        .in('chat_id', myChatIds)
+        .eq('chats.type', 'dm')
+        .limit(1)
+      
+      if (commonChats && commonChats.length > 0) {
+        setShowProfile(false)
+        router.push(`/chat/${commonChats[0].chat_id}`)
+        return
+      }
+    }
+
+    // Create new DM if not found
+    try {
+      const { data: chatData, error: chatError } = await supabase
+        .from('chats')
+        .insert({ type: 'dm' })
+        .select()
+        .single()
+      
+      if (chatError) throw chatError
+      if (!chatData) return
+      
+      await supabase.from('chat_members').insert([
+        { chat_id: chatData.id, user_id: user.id },
+        { chat_id: chatData.id, user_id: userId }
+      ])
+      
+      setShowProfile(false)
+      router.push(`/chat/${chatData.id}`)
+    } catch (err) {
+      console.error('Error creating chat for navigation:', err)
+    }
+  }
+
   const fetchUsersForInvite = async (query: string) => {
     if (!query.trim() || !user) return
     const cleanQuery = query.replace('@', '').trim()
@@ -1629,6 +1678,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                           setShowForwardModal(true)
                         }}
                         onSelect={handleToggleSelection}
+                        onUserClick={navigateToUserChat}
                         isSelected={selectedMessageIds.has(msg.id)}
                         isSelectionMode={isSelectionMode}
                     />
@@ -1671,18 +1721,18 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       {/* Profile Modal */}
       {showProfile && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowProfile(false)}>
-            <div className="bg-white dark:bg-gray-800 rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden transform transition-all" onClick={e => e.stopPropagation()}>
+            <div className="bg-white dark:bg-[#17212B] rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden transform transition-all border border-gray-100 dark:border-gray-800" onClick={e => e.stopPropagation()}>
                 {/* Header with gradient */}
-                <div className="h-24 bg-gradient-to-br from-blue-500 via-purple-600 to-pink-500 relative rounded-t-[2rem]">
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/10 to-transparent"></div>
+                <div className="h-32 bg-gradient-to-br from-blue-500 via-purple-600 to-pink-500 relative rounded-t-[2.5rem]">
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
                 </div>
                 
-                <div className="px-6 pb-6 pt-2">
+                <div className="px-8 pb-8 pt-2">
                     {/* Avatar */}
-                    <div className="relative -mt-12 mb-5 flex justify-center">
+                    <div className="relative -mt-16 mb-6 flex justify-center">
                         <div className="relative group">
                             <div 
-                                className="w-20 h-20 rounded-full border-4 border-white dark:border-gray-800 shadow-lg overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center cursor-pointer hover:opacity-90 transition-all hover:scale-105"
+                                className="w-28 h-28 rounded-full border-4 border-white dark:border-[#17212B] shadow-xl overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center cursor-pointer hover:opacity-95 transition-all hover:scale-105"
                                 onClick={(e) => {
                                     e.stopPropagation()
                                     const url = chat?.type === 'group' ? chat.avatar_url : otherUser?.avatar_url
@@ -1695,9 +1745,9 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                     <img src={chat?.type === 'group' ? chat.avatar_url! : otherUser?.avatar_url!} className="w-full h-full object-cover" alt="Avatar" />
                                 ) : (
                                     chat?.type === 'group' ? (
-                                        <Users className="w-10 h-10 text-gray-400" />
+                                        <Users className="w-14 h-14 text-gray-400" />
                                     ) : (
-                                        <span className="text-2xl font-bold text-gray-500 dark:text-gray-300">
+                                        <span className="text-4xl font-bold text-gray-500 dark:text-gray-300">
                                             {(chat?.type === 'dm' ? (otherUser?.username?.[0] || otherUser?.full_name?.[0]) : (chat?.name?.[0])) || '?'}
                                         </span>
                                     )
@@ -1742,79 +1792,82 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                         }
                                         input.click()
                                     }}
-                                    className="absolute bottom-0 right-0 p-1.5 bg-blue-500 text-white rounded-full shadow-md hover:bg-blue-600 transition-colors"
+                                    className="absolute bottom-1 right-1 p-2.5 bg-blue-500 text-white rounded-full shadow-lg hover:bg-blue-600 transition-all active:scale-90"
                                 >
-                                    <Camera className="w-4 h-4" />
+                                    <Camera className="w-5 h-5" />
                                 </button>
                             )}
                         </div>
                     </div>
                     
                     {/* User Info / Group Members */}
-                    <div className="mb-5 text-center space-y-2.5">
+                    <div className="mb-8 text-center space-y-4">
                         <div>
-                            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-1">
+                            <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-1 tracking-tight">
                                 {chat?.type === 'dm' 
                                     ? (chat?.name === 'Избранное' ? 'Избранное' : (otherUser?.full_name || otherUser?.username?.replace(/^@+/, '') || 'User'))
                                     : chat?.name}
                             </h2>
                             {chat?.type === 'dm' && chat?.name !== 'Избранное' && otherUser?.username && (
-                                <p className="text-blue-500 dark:text-blue-400 text-sm font-medium">@{otherUser.username.replace(/^@+/, '')}</p>
+                                <p className="text-blue-500 dark:text-blue-400 text-base font-bold tracking-wide">@{otherUser.username.replace(/^@+/, '')}</p>
                             )}
                             {chat?.type === 'group' && (
                                 <div className="flex items-center justify-center gap-2">
-                                    <p className="text-gray-500 text-sm font-medium">{groupMembers.length} участников</p>
+                                    <p className="text-gray-500 text-sm font-bold uppercase tracking-widest">{groupMembers.length} участников</p>
                                     <button 
                                         onClick={(e) => { e.stopPropagation(); setShowInviteModal(true) }}
-                                        className="p-1.5 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg text-blue-500 transition-colors"
+                                        className="p-2 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded-xl text-blue-500 transition-all active:scale-90"
                                         title="Пригласить"
                                     >
-                                        <UserPlus className="w-4 h-4" />
+                                        <UserPlus className="w-5 h-5" />
                                     </button>
                                 </div>
                             )}
                         </div>
                         
                         {chat?.type === 'dm' && otherUser?.status && (
-                            <div className="pt-1.5">
-                                <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed">{otherUser.status}</p>
+                            <div className="pt-2">
+                                <p className="text-gray-600 dark:text-gray-300 text-base italic leading-relaxed font-medium">"{otherUser.status}"</p>
                             </div>
                         )}
                         
                         {chat?.type === 'group' && (
-                            <div className="pt-3 border-t border-gray-100 dark:border-gray-700 max-h-48 overflow-y-auto space-y-3 px-1 text-left">
+                            <div className="pt-4 border-t border-gray-100 dark:border-gray-800 max-h-64 overflow-y-auto space-y-4 px-2 text-left scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
                                 {groupMembers.map(member => {
-                                    // Calculate online status for each member
                                     const lastSeenAt = member.last_seen_at
                                     const isMemberOnline = lastSeenAt ? (Date.now() - new Date(lastSeenAt).getTime()) < 120000 : false
                                     
                                     return (
-                                        <div key={member.id} className="flex items-center gap-3">
-                                            <div className="w-8 h-8 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700 shrink-0">
+                                        <div 
+                                          key={member.id} 
+                                          className="flex items-center gap-4 p-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-2xl cursor-pointer transition-all active:scale-[0.98]"
+                                          onClick={() => navigateToUserChat(member.id)}
+                                        >
+                                            <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700 shrink-0 border-2 border-transparent hover:border-blue-500 transition-all shadow-sm">
                                                 {member.avatar_url ? (
                                                     <img src={member.avatar_url} className="w-full h-full object-cover" alt="U" />
                                                 ) : (
-                                                    <div className="w-full h-full flex items-center justify-center text-xs font-bold text-gray-500">
+                                                    <div className="w-full h-full flex items-center justify-center text-sm font-bold text-gray-500">
                                                         {(member.username?.[0] || 'U').toUpperCase()}
                                                     </div>
                                                 )}
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                                                <div className="text-[15px] font-bold text-gray-900 dark:text-white truncate">
                                                     {member.full_name || member.username?.replace(/^@+/, '')}
                                                 </div>
-                                                <div className="text-[10px] text-gray-500">
+                                                <div className="text-xs font-medium">
                                                     {isMemberOnline ? (
-                                                        <span className="text-green-500 font-medium">в сети</span>
+                                                        <span className="text-green-500">в сети</span>
                                                     ) : lastSeenAt ? (
-                                                        <span>был(а) {formatLastSeen(lastSeenAt)}</span>
+                                                        <span className="text-gray-500">был(а) {formatLastSeen(lastSeenAt)}</span>
                                                     ) : (
-                                                        <span>не в сети</span>
+                                                        <span className="text-gray-400">не в сети</span>
                                                     )}
                                                 </div>
                                             </div>
                                             {isMemberOnline && (
-                                                <div className="w-2 h-2 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
+                                                <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.8)]" />
                                             )}
                                         </div>
                                     )
@@ -1823,31 +1876,30 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                         )}
                         
                         {chat?.type === 'dm' && otherUser?.bio && (
-                            <div className="pt-1.5 border-t border-gray-200 dark:border-gray-700">
-                                <p className="text-gray-700 dark:text-gray-200 text-sm leading-relaxed whitespace-pre-wrap break-words">
+                            <div className="pt-4 border-t border-gray-100 dark:border-gray-800">
+                                <p className="text-gray-700 dark:text-gray-200 text-base leading-relaxed whitespace-pre-wrap break-words font-medium">
                                     {otherUser.bio}
                                 </p>
                             </div>
                         )}
                         
                         {chat?.type === 'dm' && otherUser?.birth_date && (
-                            <div className="pt-1.5">
-                                <p className="text-gray-500 dark:text-gray-400 text-xs">
-                                    <span className="font-medium">Дата рождения:</span> {new Date(otherUser.birth_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
+                            <div className="pt-2">
+                                <p className="text-gray-500 dark:text-gray-400 text-sm font-semibold">
+                                    🎂 {new Date(otherUser.birth_date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
                                 </p>
                             </div>
                         )}
                     </div>
                     
                     {/* Action Buttons */}
-                    <div className="space-y-2.5">
+                    <div className="space-y-3">
                         {chat?.type === 'dm' && chat?.name !== 'Избранное' && otherUser?.id !== user?.id && (
                             <button 
                                 onClick={async () => {
                                     if (!user || !otherUser) return
                                     try {
                                         if (isBlockedByMe) {
-                                            // Unblock
                                             const { error } = await supabase
                                                 .from('blocked_users')
                                                 .delete()
@@ -1857,7 +1909,6 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                             if (error) throw error
                                             setIsBlockedByMe(false)
                                         } else {
-                                            // Block
                                             const { error } = await supabase
                                                 .from('blocked_users')
                                                 .upsert({
@@ -1877,7 +1928,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                         alert('Ошибка при выполнении операции')
                                     }
                                 }}
-                                className={`w-full py-3 ${isBlockedByMe ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white' : 'bg-red-500 hover:bg-red-600 text-white'} rounded-2xl font-semibold transition-all duration-200 shadow-md hover:shadow-lg active:scale-95`}
+                                className={`w-full py-4 text-base ${isBlockedByMe ? 'bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-white' : 'bg-red-500 hover:bg-red-600 text-white'} rounded-2xl font-black transition-all duration-200 shadow-lg hover:shadow-xl active:scale-95`}
                             >
                                 {isBlockedByMe ? 'Разблокировать' : 'Заблокировать'}
                             </button>
@@ -1885,7 +1936,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                     
                     <button 
                         onClick={() => setShowProfile(false)}
-                            className="w-full py-3 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-2xl text-gray-900 dark:text-white font-semibold transition-all duration-200 shadow-sm hover:shadow-md active:scale-95"
+                            className="w-full py-4 text-base bg-gray-100 dark:bg-[#242F3D] hover:bg-gray-200 dark:hover:bg-[#2b394a] rounded-2xl text-gray-900 dark:text-white font-black transition-all duration-200 shadow-md hover:shadow-lg active:scale-95"
                     >
                         Закрыть
                     </button>
@@ -1943,34 +1994,37 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       {/* Forward Modal */}
       {showForwardModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowForwardModal(false)}>
-          <div className="bg-white dark:bg-[#17212B] rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Переслать</h3>
-              <button onClick={() => setShowForwardModal(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
-                <X className="w-5 h-5 text-gray-500" />
+          <div className="bg-white dark:bg-[#17212B] rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] border border-gray-100 dark:border-gray-800" onClick={e => e.stopPropagation()}>
+            <div className="p-8 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+              <h3 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight">Переслать</h3>
+              <button onClick={() => setShowForwardModal(false)} className="p-2.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-all active:scale-90">
+                <X className="w-6 h-6 text-gray-500" />
               </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
               {userChats.length === 0 ? (
-                <div className="text-center py-10 text-gray-500">Нет доступных чатов</div>
+                <div className="text-center py-12 text-gray-500 font-medium text-lg">Нет доступных чатов</div>
               ) : (
                 userChats.map(chat => (
                   <div 
                     key={chat.id}
                     onClick={() => handleForwardMessages(chat.id)}
-                    className="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-[#242F3D] rounded-2xl cursor-pointer transition-colors"
+                    className="flex items-center gap-4 p-4 hover:bg-gray-50 dark:hover:bg-[#242F3D] rounded-[1.5rem] cursor-pointer transition-all active:scale-[0.98]"
                   >
-                    <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-tr from-blue-400 to-indigo-500 flex items-center justify-center shrink-0">
+                    <div className="w-14 h-14 rounded-full overflow-hidden bg-gradient-to-tr from-blue-400 to-indigo-500 flex items-center justify-center shrink-0 border-2 border-transparent hover:border-white transition-all shadow-md">
                       {chat.displayAvatar ? (
                         <img src={chat.displayAvatar} className="w-full h-full object-cover" alt="U" />
                       ) : (
-                        chat.type === 'group' ? <Users className="w-6 h-6 text-white" /> : <span className="text-white font-bold text-lg">{(chat.displayName?.[0] || 'U').toUpperCase()}</span>
+                        chat.type === 'group' ? <Users className="w-7 h-7 text-white" /> : <span className="text-white font-black text-xl">{(chat.displayName?.[0] || 'U').toUpperCase()}</span>
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-bold text-gray-900 dark:text-white truncate">{chat.displayName}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">{chat.type === 'group' ? 'Группа' : 'Личный чат'}</div>
+                      <div className="font-bold text-gray-900 dark:text-white text-[17px] truncate tracking-tight">{chat.displayName}</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 font-bold uppercase tracking-widest text-[10px] mt-0.5 opacity-70">{chat.type === 'group' ? 'Группа' : 'Личный чат'}</div>
+                    </div>
+                    <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-500 rounded-xl">
+                      <Send className="w-5 h-5 rotate-[-20deg]" />
                     </div>
                   </div>
                 ))
@@ -1983,50 +2037,52 @@ export function ChatWindow({ chatId }: { chatId: string }) {
       {/* Invite Modal */}
       {showInviteModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setShowInviteModal(false)}>
-          <div className="bg-white dark:bg-[#17212B] rounded-[2rem] shadow-2xl w-full max-w-sm overflow-hidden flex flex-col max-h-[80vh]" onClick={e => e.stopPropagation()}>
-            <div className="p-6 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white">Пригласить</h3>
-              <button onClick={() => setShowInviteModal(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-colors">
-                <X className="w-5 h-5 text-gray-500" />
+          <div className="bg-white dark:bg-[#17212B] rounded-[2.5rem] shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[80vh] border border-gray-100 dark:border-gray-800" onClick={e => e.stopPropagation()}>
+            <div className="p-8 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+              <h3 className="text-2xl font-black text-gray-900 dark:text-white tracking-tight">Пригласить</h3>
+              <button onClick={() => setShowInviteModal(false)} className="p-2.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full transition-all active:scale-90">
+                <X className="w-6 h-6 text-gray-500" />
               </button>
             </div>
             
-            <div className="p-4">
+            <div className="p-6">
               <div className="relative">
-                <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-400" />
+                <Search className="absolute left-4 top-3 w-5 h-5 text-gray-400" />
                 <input 
                   type="text" 
                   placeholder="Поиск по @username..." 
                   value={inviteSearchQuery}
                   onChange={(e) => setInviteSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-4 py-2 bg-gray-100 dark:bg-[#242F3D] border border-transparent focus:border-blue-500 rounded-xl text-sm outline-none transition-all text-gray-900 dark:text-white"
+                  className="w-full pl-12 pr-4 py-3.5 bg-gray-100 dark:bg-[#242F3D] border-2 border-transparent focus:border-blue-500 rounded-2xl text-base outline-none transition-all text-gray-900 dark:text-white font-medium"
                   autoFocus
                 />
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+            <div className="flex-1 overflow-y-auto p-4 space-y-2 scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
               {inviteSearchQuery && availableForInvite.length === 0 ? (
-                <div className="text-center py-10 text-gray-500">Пользователи не найдены</div>
+                <div className="text-center py-12 text-gray-500 font-medium">Пользователи не найдены</div>
               ) : (
                 availableForInvite.map(u => (
                   <div 
                     key={u.id}
                     onClick={() => handleInviteUser(u.id)}
-                    className="flex items-center gap-3 p-3 hover:bg-gray-50 dark:hover:bg-[#242F3D] rounded-2xl cursor-pointer transition-colors"
+                    className="flex items-center gap-4 p-4 hover:bg-gray-50 dark:hover:bg-[#242F3D] rounded-[1.5rem] cursor-pointer transition-all active:scale-[0.98] group"
                   >
-                    <div className="w-10 h-10 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center shrink-0">
+                    <div className="w-14 h-14 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700 flex items-center justify-center shrink-0 border-2 border-transparent group-hover:border-blue-500 transition-all">
                       {u.avatar_url ? (
                         <img src={u.avatar_url} className="w-full h-full object-cover" alt="U" />
                       ) : (
-                        <span className="text-gray-500 font-bold">{(u.username?.[0] || 'U').toUpperCase()}</span>
+                        <span className="text-gray-500 font-black text-lg">{(u.username?.[0] || 'U').toUpperCase()}</span>
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="font-bold text-gray-900 dark:text-white truncate">{u.full_name || u.username}</div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400">@{u.username}</div>
+                      <div className="font-bold text-gray-900 dark:text-white text-base truncate">{u.full_name || u.username}</div>
+                      <div className="text-sm text-gray-500 dark:text-gray-400 font-medium">@{u.username}</div>
                     </div>
-                    <UserPlus className="w-5 h-5 text-blue-500" />
+                    <div className="p-2 bg-blue-50 dark:bg-blue-900/20 text-blue-500 rounded-xl group-hover:bg-blue-500 group-hover:text-white transition-all">
+                      <UserPlus className="w-6 h-6" />
+                    </div>
                   </div>
                 ))
               )}

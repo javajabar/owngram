@@ -20,6 +20,7 @@ interface MessageBubbleProps {
   onReaction?: (messageId: string, emoji: string) => void
   onForward?: (message: Message) => void
   onSelect?: (messageId: string) => void
+  onUserClick?: (userId: string) => void
   isSelected?: boolean
   isSelectionMode?: boolean
 }
@@ -35,6 +36,7 @@ export function MessageBubble({
   onReaction,
   onForward,
   onSelect,
+  onUserClick,
   isSelected = false,
   isSelectionMode = false
 }: MessageBubbleProps) {
@@ -51,6 +53,8 @@ export function MessageBubble({
   const [duration, setDuration] = useState(0)
   const audioRef = useRef<HTMLAudioElement | null>(null)
 
+  const [showAllReactions, setShowAllReactions] = useState(false)
+  
   const voiceAttachment = message.attachments?.find((a: any) => a.type === 'voice')
 
   useEffect(() => {
@@ -272,26 +276,34 @@ export function MessageBubble({
       >
         {/* Forwarded Info */}
         {message.forwarded_from_id && (
-          <div className={cn(
-            "flex items-center gap-1.5 mb-1 opacity-90",
-            isMe ? "text-blue-100" : "text-blue-500"
-          )}>
-            <Reply className="w-3 h-3 rotate-180 scale-y-[-1]" />
+          <div 
+            className={cn(
+              "flex items-center gap-1.5 mb-1.5 opacity-90 cursor-pointer hover:opacity-100 transition-opacity",
+              isMe ? "text-blue-100" : "text-blue-500"
+            )}
+            onClick={(e) => {
+              e.stopPropagation()
+              if (onUserClick && message.forwarded_from_id) {
+                onUserClick(message.forwarded_from_id)
+              }
+            }}
+          >
+            <Reply className="w-3.5 h-3.5 rotate-180 scale-y-[-1]" />
             <div className="flex items-center gap-1">
-              <span className="text-[10px] font-medium italic whitespace-nowrap">
+              <span className="text-[11px] font-medium italic whitespace-nowrap">
                 Переслано от
               </span>
-              <div className="flex items-center gap-1 bg-black/5 dark:bg-white/5 px-1.5 py-0.5 rounded-full">
-                <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0 border border-white/20">
+              <div className="flex items-center gap-1.5 bg-black/5 dark:bg-white/5 px-2 py-0.5 rounded-full border border-black/5 dark:border-white/5">
+                <div className="w-4 h-4 rounded-full overflow-hidden shrink-0 border border-white/20">
                   {message.forwarded_from?.avatar_url ? (
                     <img src={message.forwarded_from.avatar_url} className="w-full h-full object-cover" alt="" />
                   ) : (
-                    <div className="w-full h-full bg-blue-500 flex items-center justify-center text-[6px] text-white font-bold">
+                    <div className="w-full h-full bg-blue-500 flex items-center justify-center text-[7px] text-white font-bold">
                       {(message.forwarded_from?.full_name?.[0] || 'U').toUpperCase()}
                     </div>
                   )}
                 </div>
-                <span className="text-[10px] font-bold truncate max-w-[100px]">
+                <span className="text-[11px] font-bold truncate max-w-[120px]">
                   {message.forwarded_from?.full_name || 'Пользователя'}
                 </span>
               </div>
@@ -544,21 +556,21 @@ export function MessageBubble({
                 )}
             </div>
         ) : (
-            <div className="text-sm break-words whitespace-pre-wrap font-object-sans">
+            <div className="text-[15px] leading-relaxed break-words whitespace-pre-wrap font-object-sans">
                 {message.deleted_at && message.deleted_for_all ? (
                   <span className="italic opacity-70">Сообщение удалено</span>
                 ) : (
                   message.content
                 )}
                 {message.updated_at && message.updated_at !== message.created_at && (
-                  <span className="text-[10px] opacity-50 ml-1">(изменено)</span>
+                  <span className="text-[11px] opacity-50 ml-1.5">(изменено)</span>
                 )}
             </div>
         )}
         
         {/* Time and checkmarks inline - only show if not image */}
         {!message.attachments?.some((a: any) => a.type === 'image') && (
-            <div className={cn("text-[8px] flex items-center gap-1 shrink-0 mt-auto pb-0.5", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
+            <div className={cn("text-[9px] flex items-center gap-1 shrink-0 mt-auto pb-0.5", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
             <span className="opacity-70 whitespace-nowrap">{format(new Date(message.created_at), 'HH:mm')}</span>
             {isMe && (
                     <span className="relative flex items-center" title={message.read_at ? 'Прочитано' : message.delivered_at ? 'Доставлено' : 'Отправляется...'}>
@@ -566,15 +578,15 @@ export function MessageBubble({
                             message.read_at ? (
                                 // Two checkmarks like in Telegram - second one slightly offset
                                 <span className="relative inline-flex items-center">
-                                    <Check className="w-3 h-3 text-blue-500 dark:text-blue-400" />
-                                    <Check className="w-3 h-3 text-blue-500 dark:text-blue-400 absolute left-1.5" />
+                                    <Check className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400" />
+                                    <Check className="w-3.5 h-3.5 text-blue-500 dark:text-blue-400 absolute left-1.5" />
                                 </span>
                             ) : (
                                 // Single checkmark for delivered
-                            <Check className="w-3 h-3 text-gray-500 dark:text-gray-400" />
+                            <Check className="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
                             )
                     ) : (
-                        <span className="w-3 h-3 text-gray-400">⏳</span>
+                        <span className="w-3.5 h-3.5 text-gray-400">⏳</span>
                     )}
                 </span>
             )}
@@ -585,15 +597,15 @@ export function MessageBubble({
         {/* Reactions Display */}
         {message.reactions && Object.keys(message.reactions).length > 0 && (
           <div className={cn(
-            "flex flex-wrap gap-1 mt-1",
+            "flex flex-wrap gap-1 mt-1.5",
             isMe ? "justify-end" : "justify-start"
           )}>
-            {Object.entries(message.reactions).map(([emoji, userIds]) => (
+            {Object.entries(message.reactions).slice(0, showAllReactions ? undefined : 5).map(([emoji, userIds]) => (
               <button
                 key={emoji}
                 onClick={(e) => { e.stopPropagation(); onReaction?.(message.id, emoji) }}
                 className={cn(
-                  "flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] transition-all active:scale-90 animate-in zoom-in duration-300 ease-out-back",
+                  "flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] transition-all active:scale-90 animate-in zoom-in duration-300 ease-out-back",
                   userIds.includes(user?.id || '') 
                     ? "bg-blue-500/20 border border-blue-500/30 text-blue-600 dark:text-blue-400" 
                     : "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400"
@@ -603,6 +615,15 @@ export function MessageBubble({
                 {userIds.length > 1 && <span className="font-bold">{userIds.length}</span>}
               </button>
             ))}
+            
+            {Object.keys(message.reactions).length > 5 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setShowAllReactions(!showAllReactions) }}
+                className="flex items-center justify-center w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+              >
+                <MoreVertical className={cn("w-3.5 h-3.5 transition-transform duration-300", showAllReactions ? "rotate-90" : "rotate-0")} />
+              </button>
+            )}
           </div>
         )}
       </div>
