@@ -54,186 +54,125 @@ export function Sidebar() {
       setIsLoadingChats(true)
     }
     try {
-        // Fetch my profile (cache to avoid repeated calls)
+        // 1. Fetch my profile if not cached
         if (!myProfile) {
             const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).single()
             if (profile) setMyProfile(profile as Profile)
         }
-        const profile = myProfile
 
-        // Fetch my chats with last message and other user info
-        const { data: memberData } = await supabase
+        // 2. Fetch all chats I am a member of
+        const { data: myMemberships } = await supabase
             .from('chat_members')
-            .select(`
-                chat_id, 
-                chats(*),
-                profiles!chat_members_user_id_fkey(*)
-            `)
+            .select('chat_id')
             .eq('user_id', user.id)
         
-        if (!memberData || memberData.length === 0) {
+        if (!myMemberships || myMemberships.length === 0) {
             setChats([])
             return
         }
         
-        const chatIds = memberData.map(m => m.chat_id).filter(Boolean)
-        if (chatIds.length === 0) {
-            setChats([])
-            return
-        }
+        const chatIds = myMemberships.map(m => m.chat_id)
+
+        // 3. Fetch chat details, all members (to find "the other person" in DMs), 
+        // and last messages in efficient chunks
         
-        // Get current chat ID
-        const currentChatId = typeof window !== 'undefined' 
-            ? (() => {
-                const pathParts = window.location.pathname.split('/').filter(Boolean)
-                if (pathParts[0] === 'chat' && pathParts[1]) {
-                    return pathParts[1]
-                }
-                return null
-            })()
-            : null
-        
-        // Fetch all last messages in one query (optimized)
-        const { data: allLastMessages } = await supabase
+        // Fetch chats basic info
+        const { data: chatsData } = await supabase
+            .from('chats')
+            .select('*')
+            .in('id', chatIds)
+
+        // Fetch all members of these chats to identify "otherUser" in DMs
+        // and to get names/avatars for groups if needed
+        const { data: allMembers } = await supabase
+            .from('chat_members')
+            .select('chat_id, user_id, profiles(*)')
+            .in('chat_id', chatIds)
+
+        // Fetch unread counts using a single query (all unread messages for these chats not by me)
+        const { data: unreadMessages } = await supabase
+            .from('messages')
+            .select('chat_id')
+            .in('chat_id', chatIds)
+            .neq('sender_id', user.id)
+            .is('read_at', null)
+
+        // Fetch last messages
+        const { data: lastMessages } = await supabase
             .from('messages')
             .select('*, sender:profiles(*)')
             .in('chat_id', chatIds)
             .order('created_at', { ascending: false })
-        
-        // Group messages by chat_id and get the latest for each
-        const lastMessagesMap = new Map<string, any>()
-        if (allLastMessages) {
-            allLastMessages.forEach((msg: any) => {
-                if (!lastMessagesMap.has(msg.chat_id)) {
-                    lastMessagesMap.set(msg.chat_id, msg)
-                }
-            })
-        }
-        
-        // Fetch unread counts for all chats at once (optimized) - use parallel count queries
-        const unreadCountPromises = chatIds.map(async (chatId) => {
-            if (chatId === currentChatId) return { chatId, count: 0 }
-            const { count } = await supabase
-                .from('messages')
-                .select('*', { count: 'exact', head: true })
-                .eq('chat_id', chatId)
-                .neq('sender_id', user.id)
-                .is('read_at', null)
-            return { chatId, count: count || 0 }
-        })
-        
-        const unreadCountResults = await Promise.all(unreadCountPromises)
+
+        // 4. Process everything in memory (FAST)
         const unreadCountMap = new Map<string, number>()
-        unreadCountResults.forEach(result => {
-            unreadCountMap.set(result.chatId, result.count)
+        unreadMessages?.forEach(m => {
+            unreadCountMap.set(m.chat_id, (unreadCountMap.get(m.chat_id) || 0) + 1)
         })
-        
-        // For each chat, fetch last message and other user (for DM)
-        const chatsWithDetails = await Promise.all(
-            memberData.map(async (m: any) => {
-                const chat = m.chats
-                if (!chat) return null
-                
-                const lastMessage = lastMessagesMap.get(chat.id) || null
-                const unreadCount = currentChatId === chat.id ? 0 : (unreadCountMap.get(chat.id) || 0)
-                
-                // For DM, get other user (or self for "Избранное")
-                let otherUser = null
-                if (chat.type === 'dm') {
-                    const { data: otherMember } = await supabase
-                        .from('chat_members')
-                        .select('profiles(*)')
-                        .eq('chat_id', chat.id)
-                        .neq('user_id', user.id)
-                        .maybeSingle()
-                    if (otherMember?.profiles) {
-                        otherUser = otherMember.profiles
-                    } else {
-                        // If no other user, this is "Избранное" (self-chat)
-                        otherUser = profile as Profile
-                    }
-                }
-                
-                return {
-                    ...chat,
-                    lastMessage: lastMessage || null,
-                    otherUser: otherUser || null,
-                    unreadCount: unreadCount || 0
-                }
-            })
-        )
-            
-            let validChats = chatsWithDetails.filter(Boolean) as any[]
-            
-            // Filter out duplicate "Избранное" chats - keep only the first one
-            let foundSavedMessages = false
-            validChats = validChats.filter((chat: any) => {
-                const isSavedMessages = chat.name === 'Избранное' || 
-                    (chat.type === 'dm' && chat.otherUser?.id === user.id)
-                if (isSavedMessages) {
-                    if (foundSavedMessages) return false // Skip duplicates
-                    foundSavedMessages = true
-                }
-                return true
-            })
-            
-            // Sort by last message time
-            validChats.sort((a, b) => {
-                const timeA = a.lastMessage?.created_at || a.created_at
-                const timeB = b.lastMessage?.created_at || b.created_at
-                return new Date(timeB).getTime() - new Date(timeA).getTime()
-            })
-            setChats(validChats)
-            chatsRef.current = validChats
-            
-            // Update online status for other users
-            const otherUserIds = new Set<string>()
-            validChats.forEach(chat => {
-                if (chat.type === 'dm' && chat.otherUser && chat.otherUser.id !== user.id) {
-                    otherUserIds.add(chat.otherUser.id)
-                }
-            })
-            
-            // Check online status for all other users (only if column exists)
-            if (otherUserIds.size > 0) {
-                try {
-                    const userIdsArray = Array.from(otherUserIds)
-                    const { data: profiles, error } = await supabase
-                        .from('profiles')
-                        .select('id, last_seen_at')
-                        .in('id', userIdsArray)
-                    
-                    if (error) {
-                        // If column doesn't exist, just skip online status
-                        if (error.code === '42703') {
-                            return
-                        }
-                        console.error('Error fetching online status:', error)
-                        return
-                    }
-                    
-                    if (profiles) {
-                        const now = new Date()
-                        const onlineSet = new Set<string>()
-                        profiles.forEach(profile => {
-                            if (profile.last_seen_at) {
-                                const lastSeen = new Date(profile.last_seen_at)
-                                const diffMinutes = (now.getTime() - lastSeen.getTime()) / 60000
-                                if (diffMinutes < 2) {
-                                    onlineSet.add(profile.id)
-                                }
-                            }
-                        })
-                        setOnlineUsers(onlineSet)
-                    }
-                } catch (error: any) {
-                    // If column doesn't exist, just skip
-                    if (error?.code === '42703') {
-                        return
-                    }
-                    console.error('Error checking online status:', error)
-                }
+
+        const lastMessageMap = new Map<string, any>()
+        lastMessages?.forEach(m => {
+            if (!lastMessageMap.has(m.chat_id)) {
+                lastMessageMap.set(m.chat_id, m)
             }
+        })
+
+        const membersByChat = new Map<string, any[]>()
+        allMembers?.forEach(m => {
+            if (!membersByChat.has(m.chat_id)) membersByChat.set(m.chat_id, [])
+            membersByChat.get(m.chat_id)?.push(m)
+        })
+
+        const processedChats = chatsData?.map(chat => {
+            const members = membersByChat.get(chat.id) || []
+            let otherUser = null
+
+            if (chat.type === 'dm') {
+                const otherMember = members.find(m => m.user_id !== user.id)
+                otherUser = otherMember ? otherMember.profiles : (myProfile || null)
+            }
+
+            return {
+                ...chat,
+                lastMessage: lastMessageMap.get(chat.id) || null,
+                otherUser,
+                unreadCount: unreadCountMap.get(chat.id) || 0
+            }
+        }) || []
+
+        // 5. Filter and Sort
+        let validChats = processedChats as any[]
+        let foundSavedMessages = false
+        validChats = validChats.filter((chat: any) => {
+            const isSavedMessages = chat.name === 'Избранное' || 
+                (chat.type === 'dm' && chat.otherUser?.id === user.id)
+            if (isSavedMessages) {
+                if (foundSavedMessages) return false
+                foundSavedMessages = true
+            }
+            return true
+        })
+
+        validChats.sort((a, b) => {
+            const timeA = a.lastMessage?.created_at || a.created_at
+            const timeB = b.lastMessage?.created_at || b.created_at
+            return new Date(timeB).getTime() - new Date(timeA).getTime()
+        })
+
+        setChats(validChats)
+        chatsRef.current = validChats
+
+        // 6. Update online status (existing logic but uses processed data)
+        const onlineSet = new Set<string>()
+        const now = Date.now()
+        validChats.forEach(chat => {
+            if (chat.type === 'dm' && chat.otherUser?.last_seen_at) {
+                const ls = new Date(chat.otherUser.last_seen_at).getTime()
+                if (now - ls < 120000) onlineSet.add(chat.otherUser.id)
+            }
+        })
+        setOnlineUsers(onlineSet)
+
     } catch (error) {
         console.error('Error fetching chats:', error)
         setChats([])
@@ -744,19 +683,23 @@ export function Sidebar() {
     
     setIsGlobalSearching(true)
     try {
-      // Get all user's chat IDs
-      const { data: memberData } = await supabase
-        .from('chat_members')
-        .select('chat_id')
-        .eq('user_id', user.id)
+      // Use cached userChatIds if available
+      let chatIds = userChatIds
       
-      if (!memberData || memberData.length === 0) {
-        setGlobalSearchResults([])
-        setIsGlobalSearching(false)
-        return
+      if (chatIds.length === 0) {
+        const { data: memberData } = await supabase
+          .from('chat_members')
+          .select('chat_id')
+          .eq('user_id', user.id)
+        
+        if (!memberData || memberData.length === 0) {
+          setGlobalSearchResults([])
+          setIsGlobalSearching(false)
+          return
+        }
+        chatIds = memberData.map(m => m.chat_id)
+        setUserChatIds(chatIds)
       }
-      
-      const chatIds = memberData.map(m => m.chat_id)
       
       // Search messages in all chats
       const { data: messages, error } = await supabase

@@ -271,5 +271,4 @@ function VideoElement({ stream }: { stream: MediaStream }) {
     />
   )
 }
-}
 
