@@ -718,8 +718,10 @@ export function ChatWindow({ chatId }: { chatId: string }) {
               isCallRejectForMe,
               isCalling,
               incomingCall
-            }) else if (signal.signal_type === 'call-accept') {
-              console.log('✅ Call accepted by:', signal.from_user_id)
+            })
+            
+            if (signal.signal_type === 'call-accept') {
+              console.log('✅ Call accepted by:', signalFrom)
               // Stop ringing sound
               soundManager.stopCallRinging()
               
