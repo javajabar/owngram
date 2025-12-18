@@ -25,6 +25,9 @@ export interface Message {
   deleted_at?: string | null // Timestamp when message was deleted
   deleted_for_all?: boolean // Whether message was deleted for everyone
   status?: 'sending' | 'sent' | 'error' // For optimistic UI
+  reactions?: Record<string, string[]> // emoji -> array of user_ids
+  forwarded_from_id?: string | null
+  forwarded_from?: Profile | null
 }
 
 export interface Chat {
@@ -34,6 +37,7 @@ export interface Chat {
   id: string
   type: 'dm' | 'group'
   name: string | null
+  avatar_url: string | null
   created_at: string
 }
 

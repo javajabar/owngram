@@ -4,8 +4,10 @@ import { Message } from '@/types'
 import { useAuthStore } from '@/store/useAuthStore'
 import { cn } from '@/lib/utils'
 import { format } from 'date-fns'
-import { Play, Pause, Check, CheckCheck, MoreVertical, Edit, Trash2, Reply, X, Paperclip } from 'lucide-react'
+import { Play, Pause, Check, CheckCheck, MoreVertical, Edit, Trash2, Reply, X, Paperclip, Share2, Copy, CheckCircle2 } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
+
+const REACTIONS = ['🍌', '❤️', '👍', '🔥', '😂', '😮', '😢', '👏']
 
 interface MessageBubbleProps {
   message: Message
@@ -15,9 +17,27 @@ interface MessageBubbleProps {
   showAvatar?: boolean
   onImageClick?: (imageUrl: string) => void
   onAvatarClick?: (avatarUrl: string) => void
+  onReaction?: (messageId: string, emoji: string) => void
+  onForward?: (message: Message) => void
+  onSelect?: (messageId: string) => void
+  isSelected?: boolean
+  isSelectionMode?: boolean
 }
 
-export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar = false, onImageClick, onAvatarClick }: MessageBubbleProps) {
+export function MessageBubble({ 
+  message, 
+  onReply, 
+  onEdit, 
+  onDelete, 
+  showAvatar = false, 
+  onImageClick, 
+  onAvatarClick,
+  onReaction,
+  onForward,
+  onSelect,
+  isSelected = false,
+  isSelectionMode = false
+}: MessageBubbleProps) {
   const { user } = useAuthStore()
   const isMe = user?.id === message.sender_id
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
@@ -145,36 +165,36 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
     e.preventDefault()
     e.stopPropagation()
     
+    if (isSelectionMode) return
+
     // Calculate menu position with boundary checks
-    const menuWidth = 160 // min-w-[160px]
-    const menuHeight = 150 // approximate height (with 3 items)
-    const padding = 10 // padding from edges
+    const menuWidth = 200 // wider for reactions
+    const menuHeight = 250 // approximate height
+    const padding = 10
     
     let x = e.clientX
     let y = e.clientY
     
-    // Check right edge - flip to left side of cursor
-    if (x + menuWidth + padding > window.innerWidth) {
-      x = e.clientX - menuWidth
-    }
-    
-    // Check left edge - if still out of bounds, align to left
-    if (x < padding) {
-      x = padding
-    }
-    
-    // Check bottom edge - flip to top side of cursor
-    if (y + menuHeight + padding > window.innerHeight) {
-      y = e.clientY - menuHeight
-    }
-    
-    // Check top edge - if still out of bounds, align to top
-    if (y < padding) {
-      y = padding
-    }
+    if (x + menuWidth + padding > window.innerWidth) x = e.clientX - menuWidth
+    if (x < padding) x = padding
+    if (y + menuHeight + padding > window.innerHeight) y = e.clientY - menuHeight
+    if (y < padding) y = padding
     
     setContextMenu({ x: e.clientX, y: e.clientY })
     setMenuPosition({ x, y })
+  }
+
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (onReaction) {
+      onReaction(message.id, '🍌')
+    }
+  }
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(message.content)
+    setContextMenu(null)
   }
 
   const handleDelete = (deleteForAll: boolean) => {
@@ -191,7 +211,25 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
   }
 
   return (
-    <div className={cn("flex w-full mb-2 group items-end gap-2 transition-all duration-300 ease-in-out", isMe ? "justify-end" : "justify-start")}>
+    <div 
+      className={cn(
+        "flex w-full mb-2 group items-end gap-2 transition-all duration-300 ease-in-out relative", 
+        isMe ? "justify-end" : "justify-start",
+        isSelected && "bg-blue-500/10"
+      )}
+      onClick={() => isSelectionMode && onSelect?.(message.id)}
+    >
+      {isSelectionMode && (
+        <div className="absolute left-2 top-1/2 -translate-y-1/2 z-10">
+          <div className={cn(
+            "w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all",
+            isSelected ? "bg-blue-500 border-blue-500" : "border-gray-400"
+          )}>
+            {isSelected && <Check className="w-3 h-3 text-white stroke-[3]" />}
+          </div>
+        </div>
+      )}
+
       {/* Avatar for other user's messages - or empty space to align messages */}
       {!isMe && (
         <div className="w-8 h-8 shrink-0">
@@ -218,18 +256,34 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
       
       <div 
         onContextMenu={handleContextMenu}
+        onDoubleClick={handleDoubleClick}
         className={cn(
             message.attachments?.some((a: any) => a.type === 'image')
-                ? "max-w-[155px] px-0 py-0 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out"
-                : "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex items-end gap-1.5 transition-all duration-200 ease-out",
+                ? "max-w-[155px] px-0 py-0 shadow-sm relative text-sm inline-flex flex-col gap-1.5 transition-all duration-200 ease-out"
+                : "max-w-[70%] px-2.5 py-1.5 shadow-sm relative text-sm inline-flex flex-col gap-1.5 transition-all duration-200 ease-out",
             message.deleted_at && message.deleted_for_all
                 ? "opacity-50 italic"
                 : "",
             isMe 
                 ? "bg-[#E7F3FF] dark:bg-[#2b5278] text-black dark:text-white rounded-2xl rounded-tr-sm hover:shadow-md" 
-                : "bg-white dark:bg-[#182533] text-black dark:text-white rounded-2xl rounded-tl-sm border border-gray-200 dark:border-gray-700 hover:shadow-md"
+                : "bg-white dark:bg-[#182533] text-black dark:text-white rounded-2xl rounded-tl-sm border border-gray-200 dark:border-gray-700 hover:shadow-md",
+            isSelectionMode && "pointer-events-none"
         )}
       >
+        {/* Forwarded Info */}
+        {message.forwarded_from_id && (
+          <div className={cn(
+            "flex items-center gap-1.5 mb-1 opacity-80",
+            isMe ? "text-blue-100" : "text-blue-500"
+          )}>
+            <Share2 className="w-3 h-3" />
+            <span className="text-[10px] font-medium italic">
+              Переслано от {message.forwarded_from?.full_name || 'пользователя'}
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-end gap-1.5 w-full">
         {/* Reply Preview */}
         {message.reply_to && (
           <div className={cn(
@@ -247,50 +301,75 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
             ref={menuRef}
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
-            className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 py-1 min-w-[160px]"
+            className="fixed z-50 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-700 py-2 min-w-[200px] overflow-hidden"
             style={{ 
               top: `${menuPosition.y}px`,
               left: `${menuPosition.x}px`
             }}
           >
+            {/* Reactions Grid */}
+            <div className="px-3 py-2 border-b border-gray-100 dark:border-gray-700 flex flex-wrap gap-2 justify-between">
+              {REACTIONS.map(emoji => (
+                <button
+                  key={emoji}
+                  onClick={() => { onReaction?.(message.id, emoji); setContextMenu(null) }}
+                  className="w-8 h-8 flex items-center justify-center text-xl hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-1">
             {onReply && (
               <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onReply(message)
-                  setContextMenu(null)
-                }}
-                className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                onClick={(e) => { e.stopPropagation(); onReply(message); setContextMenu(null) }}
+                className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 transition-colors"
               >
-                <Reply className="w-4 h-4" />
+                <Reply className="w-4 h-4 opacity-70" />
                 Ответить
               </button>
             )}
+            <button
+              onClick={handleCopy}
+              className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 transition-colors"
+            >
+              <Copy className="w-4 h-4 opacity-70" />
+              Копировать
+            </button>
+            <button
+              onClick={() => { onForward?.(message); setContextMenu(null) }}
+              className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 transition-colors"
+            >
+              <Share2 className="w-4 h-4 opacity-70" />
+              Переслать
+            </button>
+            <button
+              onClick={() => { onSelect?.(message.id); setContextMenu(null) }}
+              className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 transition-colors"
+            >
+              <CheckCircle2 className="w-4 h-4 opacity-70" />
+              Выделить
+            </button>
             {isMe && onEdit && !message.deleted_at && (
               <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onEdit(message)
-                  setContextMenu(null)
-                }}
-                className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                onClick={(e) => { e.stopPropagation(); onEdit(message); setContextMenu(null) }}
+                className="w-full px-4 py-2 text-left text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 transition-colors"
               >
-                <Edit className="w-4 h-4" />
+                <Edit className="w-4 h-4 opacity-70" />
                 Редактировать
               </button>
             )}
             {isMe && onDelete && (
               <button
-                onClick={(e) => {
-                  e.stopPropagation()
-                  setShowDeleteConfirm(true)
-                }}
-                className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-2"
+                onClick={(e) => { e.stopPropagation(); setShowDeleteConfirm(true) }}
+                className="w-full px-4 py-2 text-left text-sm text-red-600 dark:text-red-400 hover:bg-gray-100 dark:hover:bg-gray-700 flex items-center gap-3 transition-colors"
               >
-                <Trash2 className="w-4 h-4" />
+                <Trash2 className="w-4 h-4 opacity-70" />
                 Удалить
               </button>
             )}
+            </div>
           </div>
         )}
 
@@ -463,7 +542,7 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
         
         {/* Time and checkmarks inline - only show if not image */}
         {!message.attachments?.some((a: any) => a.type === 'image') && (
-            <div className={cn("text-[8px] flex items-center gap-1 shrink-0", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
+            <div className={cn("text-[8px] flex items-center gap-1 shrink-0 mt-auto pb-0.5", isMe ? "text-blue-600 dark:text-blue-300" : "text-gray-500 dark:text-gray-400")}>
             <span className="opacity-70 whitespace-nowrap">{format(new Date(message.created_at), 'HH:mm')}</span>
             {isMe && (
                     <span className="relative flex items-center" title={message.read_at ? 'Прочитано' : message.delivered_at ? 'Доставлено' : 'Отправляется...'}>
@@ -484,6 +563,31 @@ export function MessageBubble({ message, onReply, onEdit, onDelete, showAvatar =
                 </span>
             )}
         </div>
+        )}
+        </div>
+
+        {/* Reactions Display */}
+        {message.reactions && Object.keys(message.reactions).length > 0 && (
+          <div className={cn(
+            "flex flex-wrap gap-1 mt-1",
+            isMe ? "justify-end" : "justify-start"
+          )}>
+            {Object.entries(message.reactions).map(([emoji, userIds]) => (
+              <button
+                key={emoji}
+                onClick={(e) => { e.stopPropagation(); onReaction?.(message.id, emoji) }}
+                className={cn(
+                  "flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] transition-all active:scale-90",
+                  userIds.includes(user?.id || '') 
+                    ? "bg-blue-500/20 border border-blue-500/30 text-blue-600 dark:text-blue-400" 
+                    : "bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400"
+                )}
+              >
+                <span className={cn(emoji === '🍌' && "animate-bounce origin-bottom")}>{emoji}</span>
+                {userIds.length > 1 && <span className="font-bold">{userIds.length}</span>}
+              </button>
+            ))}
+          </div>
         )}
       </div>
     </div>

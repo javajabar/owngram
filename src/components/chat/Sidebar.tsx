@@ -732,7 +732,7 @@ export function Sidebar() {
                 <div className="flex flex-col">
                     {chats.map((chat: any) => {
                         const displayName = chat.type === 'dm' ? (chat.name === 'Избранное' ? 'Избранное' : (chat.otherUser?.full_name || chat.otherUser?.username || 'User')) : (chat.name || 'Chat')
-                        const avatarUrl = chat.type === 'dm' ? chat.otherUser?.avatar_url : null
+                        const avatarUrl = chat.type === 'dm' ? chat.otherUser?.avatar_url : chat.avatar_url
                         const lastMsg = chat.lastMessage
                         const unreadCount = chat.unreadCount || 0
                         let lastMsgPreview = 'No messages yet'

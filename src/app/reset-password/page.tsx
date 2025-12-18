@@ -84,7 +84,7 @@ export default function ResetPasswordPage() {
 
             <div className="space-y-4">
               <div>
-                <label htmlFor="password" ***-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Новый пароль
                 </label>
                 <input
@@ -98,7 +98,7 @@ export default function ResetPasswordPage() {
                 />
               </div>
               <div>
-                <label htmlFor="confirmPassword" ***-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Подтвердите пароль
                 </label>
                 <input
