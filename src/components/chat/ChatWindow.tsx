@@ -1954,7 +1954,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                         )}
                         
                         {chat?.type === 'group' && (
-                            <div className="pt-4 border-t border-gray-100 dark:border-gray-800 max-h-64 overflow-y-auto space-y-4 px-2 text-left scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
+                            <div className="pt-6 border-t border-gray-100 dark:border-gray-800 max-h-[32rem] overflow-y-auto space-y-6 px-4 text-left scrollbar-thin scrollbar-thumb-gray-200 dark:scrollbar-thumb-gray-700">
                                 {groupMembers.map(member => {
                                     const lastSeenAt = member.last_seen_at
                                     const isMemberOnline = lastSeenAt ? (Date.now() - new Date(lastSeenAt).getTime()) < 120000 : false
@@ -1962,34 +1962,34 @@ export function ChatWindow({ chatId }: { chatId: string }) {
                                     return (
                                         <div 
                                           key={member.id} 
-                                          className="flex items-center gap-4 p-2.5 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-2xl cursor-pointer transition-all active:scale-[0.98]"
+                                          className="flex items-center gap-6 p-4 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-[2rem] cursor-pointer transition-all active:scale-[0.98]"
                                           onClick={() => navigateToUserChat(member.id)}
                                         >
-                                            <div className="w-12 h-12 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700 shrink-0 border-2 border-transparent hover:border-blue-500 transition-all shadow-sm">
+                                            <div className="w-16 h-16 rounded-full overflow-hidden bg-gray-200 dark:bg-gray-700 shrink-0 border-2 border-transparent hover:border-blue-500 transition-all shadow-md">
                                                 {member.avatar_url ? (
                                                     <img src={member.avatar_url} className="w-full h-full object-cover" alt="U" />
                                                 ) : (
-                                                    <div className="w-full h-full flex items-center justify-center text-sm font-bold text-gray-500">
+                                                    <div className="w-full h-full flex items-center justify-center text-xl font-black text-gray-500">
                                                         {(member.username?.[0] || 'U').toUpperCase()}
                                                     </div>
                                                 )}
                                             </div>
                                             <div className="flex-1 min-w-0">
-                                                <div className="text-[15px] font-bold text-gray-900 dark:text-white truncate">
+                                                <div className="text-xl font-black text-gray-900 dark:text-white truncate tracking-tight mb-1">
                                                     {member.full_name || member.username?.replace(/^@+/, '')}
                                                 </div>
-                                                <div className="text-xs font-medium">
+                                                <div className="text-sm font-bold uppercase tracking-widest">
                                                     {isMemberOnline ? (
-                                                        <span className="text-green-500">в сети</span>
+                                                        <span className="text-green-500 animate-pulse">в сети</span>
                                                     ) : lastSeenAt ? (
-                                                        <span className="text-gray-500">был(а) {formatLastSeen(lastSeenAt)}</span>
+                                                        <span className="text-gray-400">был(а) {formatLastSeen(lastSeenAt)}</span>
                                                     ) : (
-                                                        <span className="text-gray-400">не в сети</span>
+                                                        <span className="text-gray-500">не в сети</span>
                                                     )}
                                                 </div>
                                             </div>
                                             {isMemberOnline && (
-                                                <div className="w-2.5 h-2.5 rounded-full bg-green-500 shadow-[0_0_10px_rgba(34,197,94,0.8)]" />
+                                                <div className="w-3.5 h-3.5 rounded-full bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.8)] border-2 border-white dark:border-[#17212B]" />
                                             )}
                                         </div>
                                     )
