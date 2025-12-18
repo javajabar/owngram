@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import AuthProvider from "@/components/AuthProvider";
+import CallListenerProvider from "@/components/CallListenerProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,7 +23,9 @@ export default function RootLayout({
     <html lang="en">
       <body className="antialiased font-outfit">
         <AuthProvider>
-        {children}
+          <CallListenerProvider>
+            {children}
+          </CallListenerProvider>
         </AuthProvider>
       </body>
     </html>
