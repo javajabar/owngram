@@ -1134,7 +1134,7 @@ export function ChatWindow({ chatId }: { chatId: string }) {
           const signal = payload.new as any
           
           // Get latest state from ref to avoid stale closure and dependency spam
-          const { isCalling: refIsCalling, incomingCall: refIncomingCall, otherUser: refOtherUser } = callStateRef.current
+          const { isCalling: refIsCalling, incomingCall: refIncomingCall, isInCall: refIsInCall, otherUser: refOtherUser } = callStateRef.current
           
           // Convert to strings for reliable comparison
           const signalTo = String(signal.to_user_id || '').trim()
