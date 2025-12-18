@@ -389,80 +389,32 @@ export function Sidebar() {
       }
     }
 
-    // Request notification permission on mount
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission()
-    }
-
-    // Get user's chat IDs for filtering
-    supabase
-        .from('chat_members')
-        .select('chat_id')
-        .eq('user_id', currentUserId)
-        .then(({ data }) => {
-            if (data) {
-                setUserChatIds(data.map(m => m.chat_id))
-            }
-        })
+  // --- SINGLE STABLE REALTIME CHANNEL ---
+  useEffect(() => {
+    if (!user) return
     
-    // Listen for chat read and chat left events
-    const handleChatRead = (event: any) => {
-      if (event.detail?.chatId) {
-        // Update unread count locally without full refresh
-        setChats(prev => prev.map(chat => 
-          chat.id === event.detail.chatId 
-            ? { ...chat, unreadCount: 0 }
-            : chat
-        ))
-      }
-    }
+    const currentUserId = user.id
+    // Use a unique channel name per session to avoid conflicts
+    const channelId = `sidebar_global_${currentUserId}_${Date.now()}`
     
-    if (typeof window !== 'undefined') {
-      window.addEventListener('chatRead', handleChatRead as EventListener)
-    }
-
-    const channel = supabase.channel(`sidebar_chats_${currentUserId}`)
-        .on('postgres_changes', { 
-            event: 'INSERT', 
-            schema: 'public', 
-            table: 'chat_members', 
-            filter: `user_id=eq.${currentUserId}` 
-        }, () => {
-            console.log('📬 [Sidebar] Added to new chat, refreshing...')
-            fetchChats(false)
-        })
+    console.log('📡 [Sidebar] Setting up stable realtime channel:', channelId)
+    
+    const channel = supabase.channel(channelId)
+        // 1. Listen for new messages in ANY of my chats
         .on('postgres_changes', { 
             event: 'INSERT', 
             schema: 'public', 
             table: 'messages'
         }, async (payload) => {
             const message = payload.new as any
-            
-            // Skip deleted
             if (message.deleted_at && message.deleted_for_all) return
             
-            // Fast check in memory using userChatIds state
-            // Use ref to get latest chat IDs without effect re-run
-            if (!chatsRef.current.some(c => c.id === message.chat_id)) {
-                // If it's a completely new chat we don't know about yet, do a check
-                const { data: memberCheck } = await supabase
-                    .from('chat_members')
-                    .select('chat_id')
-                    .eq('chat_id', message.chat_id)
-                    .eq('user_id', currentUserId)
-                    .maybeSingle()
-                
-                if (!memberCheck) return
-            }
+            // Fast check: is this message for one of my chats?
+            if (!userChatIdsRef.current.includes(message.chat_id)) return
 
-            console.log('📩 [Sidebar] New message for chat:', message.chat_id)
+            console.log('📩 [Sidebar] New message received:', message.id)
             
-            // Get current chat ID from URL
-            const currentPathChatId = typeof window !== 'undefined' 
-                ? window.location.pathname.split('/').filter(Boolean)[1]
-                : null
-            
-            // Fetch sender info if needed or just use basic update
+            // Fetch full message with sender
             const { data: fullMessage } = await supabase
                 .from('messages')
                 .select('*, sender:profiles(*)')
@@ -470,32 +422,30 @@ export function Sidebar() {
                 .single()
             
             const msgToUse = fullMessage || message
+            const currentPathChatId = typeof window !== 'undefined' 
+                ? window.location.pathname.split('/').filter(Boolean)[1]
+                : null
 
-            // Play sound and show notification
+            // Notifications & Sound
             if (msgToUse.sender_id !== currentUserId && msgToUse.chat_id !== currentPathChatId) {
                 soundManager.playMessageReceived()
                 if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
                     const senderName = (msgToUse.sender as any)?.full_name || 'Собеседник'
-                    new Notification(senderName, {
-                        body: msgToUse.content,
-                        tag: msgToUse.chat_id
-                    })
+                    new Notification(senderName, { body: msgToUse.content, tag: msgToUse.chat_id })
                 }
             }
             
-            // Update state immediately
+            // Update chats state
             setChats(prevChats => {
                 const updated = [...prevChats]
                 const index = updated.findIndex(c => c.id === msgToUse.chat_id)
-                
                 if (index === -1) {
-                    fetchChats(false) // New chat, full refresh
+                    fetchChats(false) // New chat detected
                     return prevChats
                 }
                 
                 const chat = { ...updated[index] }
                 chat.lastMessage = msgToUse
-                
                 if (msgToUse.sender_id !== currentUserId && msgToUse.chat_id !== currentPathChatId) {
                     chat.unreadCount = (chat.unreadCount || 0) + 1
                 } else if (msgToUse.chat_id === currentPathChatId) {
@@ -510,94 +460,61 @@ export function Sidebar() {
                 })
             })
         })
-        .on('postgres_changes', { 
-            event: 'UPDATE', 
-            schema: 'public', 
-            table: 'messages'
-        }, async (payload) => {
-            const updatedMessage = payload.new as any
+        // 2. Listen for profile updates (online status)
+        .on('postgres_changes', {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'profiles'
+        }, (payload) => {
+            const updated = payload.new as Profile
+            if (!updated.last_seen_at) {
+                setOnlineUsers(prev => { const next = new Set(prev); next.delete(updated.id); return next })
+                return
+            }
             
-            // Update in memory if we have this chat
-            setChats(prevChats => {
-                const index = prevChats.findIndex(c => c.id === updatedMessage.chat_id)
-                if (index === -1) return prevChats
-                
-                const updated = [...prevChats]
-                const chat = { ...updated[index] }
-                if (chat.lastMessage?.id === updatedMessage.id) {
-                    chat.lastMessage = { ...chat.lastMessage, ...updatedMessage }
-                    updated[index] = chat
-                }
-                return updated
+            const lastSeen = new Date(updated.last_seen_at)
+            const diffMinutes = (new Date().getTime() - lastSeen.getTime()) / 60000
+            
+            setOnlineUsers(prev => {
+                const next = new Set(prev)
+                if (diffMinutes < 2) next.add(updated.id)
+                else next.delete(updated.id)
+                return next
             })
+        })
+        // 3. Listen for new chat memberships
+        .on('postgres_changes', { 
+            event: 'INSERT', 
+            schema: 'public', 
+            table: 'chat_members', 
+            filter: `user_id=eq.${currentUserId}` 
+        }, () => {
+            console.log('📬 [Sidebar] Added to new chat!')
+            fetchChats(false)
         })
         .subscribe((status) => {
             console.log('📡 [Sidebar] Realtime status:', status)
         })
-        
+
+    // Listen for custom "chatRead" event from ChatWindow
+    const handleChatRead = (event: any) => {
+        if (event.detail?.chatId) {
+            setChats(prev => prev.map(c => c.id === event.detail.chatId ? { ...c, unreadCount: 0 } : c))
+        }
+    }
+    
+    if (typeof window !== 'undefined') {
+        window.addEventListener('chatRead', handleChatRead as EventListener)
+    }
+
     return () => { 
-        console.log('🧹 [Sidebar] Cleaning up listener')
+        console.log('🧹 [Sidebar] Cleanup')
         if (typeof window !== 'undefined') {
-          window.removeEventListener('chatRead', handleChatRead as EventListener)
+            window.removeEventListener('chatRead', handleChatRead as EventListener)
         }
         supabase.removeChannel(channel)
     }
-  }, [user?.id]) // ONLY depend on user ID to avoid re-subscription spam
-  
-  // Subscribe to profile updates for online status (separate effect)
-  useEffect(() => {
-    if (!user || chats.length === 0) return
-    
-    const profileChannels: any[] = []
-    const otherUserIds = new Set<string>()
-    
-    chats.forEach(chat => {
-        if (chat.type === 'dm' && chat.otherUser && chat.otherUser.id !== user.id) {
-            otherUserIds.add(chat.otherUser.id)
-        }
-    })
-    
-    // Subscribe to updates for all other users (only if column exists)
-    otherUserIds.forEach(userId => {
-        const profileChannel = supabase.channel(`profile_status:${userId}`)
-            .on('postgres_changes', {
-                event: 'UPDATE',
-                schema: 'public',
-                table: 'profiles',
-                filter: `id=eq.${userId}`
-            }, (payload) => {
-                const updated = payload.new as Profile
-                // Immediately update status when we get real-time update
-                if ('last_seen_at' in updated && updated.last_seen_at) {
-                    const lastSeen = new Date(updated.last_seen_at)
-                    const now = new Date()
-                    const diffMinutes = (now.getTime() - lastSeen.getTime()) / 60000
-                    setOnlineUsers(prev => {
-                        const next = new Set(prev)
-                        if (diffMinutes < 2) {
-                            next.add(updated.id)
-                        } else {
-                            next.delete(updated.id)
-                        }
-                        return next
-                    })
-                } else {
-                    // If last_seen_at is null, user is offline
-                    setOnlineUsers(prev => {
-                        const next = new Set(prev)
-                        next.delete(updated.id)
-                        return next
-                    })
-                }
-            })
-            .subscribe()
-        profileChannels.push(profileChannel)
-    })
-    
-    return () => {
-        profileChannels.forEach(ch => supabase.removeChannel(ch))
-    }
-  }, [user, chats])
+  }, [user?.id])
 
   // Search users logic
   useEffect(() => {
