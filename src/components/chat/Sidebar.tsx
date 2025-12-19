@@ -9,6 +9,7 @@ import { Plus, Settings, LogOut, User as UserIcon, Search, Trash2, X, MoreVertic
 import { soundManager } from '@/lib/sounds'
 import { profileCache } from '@/lib/cache'
 import { cn } from '@/lib/utils'
+import { showNotification, requestNotificationPermission, registerServiceWorker, areNotificationsAvailable } from '@/lib/notifications'
 
 export function Sidebar() {
     const [chats, setChats] = useState<Chat[]>([])
@@ -503,9 +504,11 @@ export function Sidebar() {
       fetchChats(false)
     }
 
-    // Request notification permission
-    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
-        Notification.requestPermission()
+    // Register Service Worker and request notification permission
+    if (typeof window !== 'undefined') {
+      registerServiceWorker().then(() => {
+        requestNotificationPermission()
+      })
     }
   }, [user])
 
@@ -541,7 +544,9 @@ export function Sidebar() {
             
             if (msgToUse.sender_id !== currentUserId && msgToUse.chat_id !== currentPathChatId) {
                 soundManager.playMessageReceived()
-                if ('Notification' in window && Notification.permission === 'granted' && document.hidden) {
+                
+                // Show notification (works on iOS via Service Worker if PWA)
+                if (areNotificationsAvailable() && document.hidden) {
                     const senderName = (msgToUse.sender as any)?.full_name || 'Собеседник'
                     const senderAvatar = (msgToUse.sender as any)?.avatar_url
                     
@@ -551,10 +556,13 @@ export function Sidebar() {
                         icon: senderAvatar || undefined,
                         badge: senderAvatar || undefined,
                         requireInteraction: false,
-                        silent: false
+                        silent: false,
+                        data: {
+                            chatId: msgToUse.chat_id
+                        }
                     }
                     
-                    new Notification(senderName, notificationOptions)
+                    showNotification(senderName, notificationOptions)
                 }
             }
             
