@@ -22,9 +22,9 @@ self.addEventListener('activate', (event) => {
   return self.clients.claim(); // Take control of all pages immediately
 });
 
-// Handle push notifications
+// Handle push notifications (серверные push от Supabase Edge Function)
 self.addEventListener('push', (event) => {
-  console.log('[SW] Push notification received:', event);
+  console.log('[SW] 📬 Push notification received from server:', event);
   
   let notificationData = {
     title: 'OwnGram',
@@ -33,19 +33,34 @@ self.addEventListener('push', (event) => {
     badge: '/icon-192x192.png',
     tag: 'message',
     requireInteraction: false,
-    silent: false
+    silent: false,
+    data: {}
   };
 
+  // Парсим данные от сервера
   if (event.data) {
     try {
       const data = event.data.json();
+      console.log('[SW] Parsed push data:', data);
+      
       notificationData = {
-        ...notificationData,
-        ...data,
-        tag: data.tag || data.chatId || 'message'
+        title: data.title || notificationData.title,
+        body: data.body || notificationData.body,
+        icon: data.icon || notificationData.icon,
+        badge: data.badge || notificationData.badge,
+        tag: data.tag || data.chatId || notificationData.tag,
+        requireInteraction: data.requireInteraction || false,
+        silent: data.silent || false,
+        data: data.data || {}
       };
     } catch (e) {
       console.error('[SW] Error parsing push data:', e);
+      // Если не JSON, пытаемся как текст
+      try {
+        notificationData.body = event.data.text();
+      } catch (textError) {
+        console.error('[SW] Error parsing as text:', textError);
+      }
     }
   }
 
@@ -54,15 +69,28 @@ self.addEventListener('push', (event) => {
     tag: notificationData.tag,
     requireInteraction: notificationData.requireInteraction,
     silent: notificationData.silent,
-    data: notificationData.data || {}
+    data: {
+      ...notificationData.data,
+      chatId: notificationData.data.chatId || notificationData.tag,
+      messageId: notificationData.data.messageId,
+      senderId: notificationData.data.senderId,
+    }
   };
 
   // Only add icon/badge if they exist
   if (notificationData.icon) notificationOptions.icon = notificationData.icon;
   if (notificationData.badge) notificationOptions.badge = notificationData.badge;
 
+  console.log('[SW] Showing notification:', notificationData.title, notificationOptions);
+
   event.waitUntil(
     self.registration.showNotification(notificationData.title, notificationOptions)
+      .then(() => {
+        console.log('[SW] ✅ Push notification shown successfully');
+      })
+      .catch((error) => {
+        console.error('[SW] ❌ Failed to show push notification:', error);
+      })
   );
 });
 
@@ -100,8 +128,29 @@ self.addEventListener('message', (event) => {
   
   if (event.data && event.data.type === 'SHOW_NOTIFICATION') {
     const { title, options } = event.data;
+    console.log('[SW] Showing notification from message:', { title, options });
+    
+    const notificationOptions = {
+      ...options,
+      body: options.body || '',
+      tag: options.tag || 'message',
+      requireInteraction: options.requireInteraction || false,
+      silent: options.silent || false,
+      data: options.data || {}
+    };
+    
+    // Only add icon/badge if they exist
+    if (options.icon) notificationOptions.icon = options.icon;
+    if (options.badge) notificationOptions.badge = options.badge;
+    
     event.waitUntil(
-      self.registration.showNotification(title, options)
+      self.registration.showNotification(title, notificationOptions)
+        .then(() => {
+          console.log('[SW] ✅ Notification shown successfully');
+        })
+        .catch((error) => {
+          console.error('[SW] ❌ Failed to show notification:', error);
+        })
     );
   }
 });

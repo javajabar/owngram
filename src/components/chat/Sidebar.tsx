@@ -9,7 +9,7 @@ import { Plus, Settings, LogOut, User as UserIcon, Search, Trash2, X, MoreVertic
 import { soundManager } from '@/lib/sounds'
 import { profileCache } from '@/lib/cache'
 import { cn } from '@/lib/utils'
-import { showNotification, requestNotificationPermission, registerServiceWorker, areNotificationsAvailable } from '@/lib/notifications'
+import { showNotification, requestNotificationPermission, registerServiceWorker, areNotificationsAvailable, isIOS } from '@/lib/notifications'
 
 export function Sidebar() {
     const [chats, setChats] = useState<Chat[]>([])
@@ -506,9 +506,24 @@ export function Sidebar() {
 
     // Register Service Worker and request notification permission
     if (typeof window !== 'undefined') {
-      registerServiceWorker().then(() => {
-        requestNotificationPermission()
-      })
+      registerServiceWorker().then(async (registration) => {
+        if (registration) {
+          console.log('[Sidebar] Service Worker registered, requesting permission...');
+          const permission = await requestNotificationPermission();
+          console.log('[Sidebar] Notification permission:', permission);
+          
+          // Log iOS-specific info
+          if (isIOS()) {
+            console.log('[Sidebar] iOS detected:', {
+              isStandalone: (window.navigator as any).standalone === true || window.matchMedia('(display-mode: standalone)').matches,
+              hasSW: 'serviceWorker' in navigator,
+              permission
+            });
+          }
+        }
+      }).catch((error) => {
+        console.error('[Sidebar] Failed to setup notifications:', error);
+      });
     }
   }, [user])
 
@@ -546,7 +561,13 @@ export function Sidebar() {
                 soundManager.playMessageReceived()
                 
                 // Show notification (works on iOS via Service Worker if PWA)
-                if (areNotificationsAvailable() && document.hidden) {
+                // On iOS, notifications work even when app is active (via SW)
+                // On other platforms, only when document is hidden
+                const shouldShow = isIOS() 
+                    ? areNotificationsAvailable() 
+                    : areNotificationsAvailable() && document.hidden;
+                
+                if (shouldShow) {
                     const senderName = (msgToUse.sender as any)?.full_name || 'Собеседник'
                     const senderAvatar = (msgToUse.sender as any)?.avatar_url
                     
@@ -562,7 +583,14 @@ export function Sidebar() {
                         }
                     }
                     
+                    console.log('[Sidebar] Attempting to show notification:', { senderName, chatId: msgToUse.chat_id });
                     showNotification(senderName, notificationOptions)
+                } else {
+                    console.log('[Sidebar] Notification skipped:', {
+                        isIOS: isIOS(),
+                        available: areNotificationsAvailable(),
+                        hidden: document.hidden
+                    });
                 }
             }
             

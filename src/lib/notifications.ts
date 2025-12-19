@@ -77,6 +77,12 @@ export const showNotification = async (
     return;
   }
 
+  const permission = Notification.permission;
+  console.log('[Notifications] Permission status:', permission);
+  console.log('[Notifications] Document hidden:', document.hidden);
+  console.log('[Notifications] Is iOS:', isIOS());
+  console.log('[Notifications] Is standalone:', isStandalone());
+
   // On iOS, we must use Service Worker
   if (isIOS()) {
     if (!isStandalone()) {
@@ -84,25 +90,68 @@ export const showNotification = async (
       return;
     }
 
-    // Use Service Worker for iOS
+    if (permission !== 'granted') {
+      console.warn('[Notifications] Permission not granted on iOS:', permission);
+      return;
+    }
+
+    // Use Service Worker for iOS (even if app is active)
     if ('serviceWorker' in navigator) {
       try {
         const registration = await navigator.serviceWorker.ready;
-        await registration.showNotification(title, options);
+        console.log('[Notifications] Service Worker ready, showing notification');
+        
+        // Try to show notification via Service Worker
+        // On iOS, this works even when app is in foreground
+        await registration.showNotification(title, {
+          ...options,
+          // Ensure these options are set for iOS
+          badge: options.badge || '/icon-192x192.png',
+          icon: options.icon || '/icon-192x192.png',
+        });
+        console.log('[Notifications] ✅ Notification shown via Service Worker');
         return;
       } catch (error) {
-        console.error('[Notifications] Failed to show notification via SW:', error);
+        console.error('[Notifications] ❌ Failed to show notification via SW:', error);
+        console.error('[Notifications] Error details:', {
+          name: (error as any)?.name,
+          message: (error as any)?.message,
+          stack: (error as any)?.stack
+        });
+        
+        // Try alternative: send message to SW
+        try {
+          const registration = await navigator.serviceWorker.ready;
+          registration.active?.postMessage({
+            type: 'SHOW_NOTIFICATION',
+            title,
+            options: {
+              ...options,
+              badge: options.badge || '/icon-192x192.png',
+              icon: options.icon || '/icon-192x192.png',
+            }
+          });
+          console.log('[Notifications] 📨 Sent notification request to SW via postMessage');
+        } catch (postError) {
+          console.error('[Notifications] ❌ postMessage also failed:', postError);
+        }
       }
+    } else {
+      console.warn('[Notifications] Service Worker not available on iOS');
     }
+    return;
   }
 
-  // For other platforms, use regular Notification API
-  if (Notification.permission === 'granted' && document.hidden) {
+  // For other platforms, use regular Notification API (only when hidden)
+  if (permission === 'granted' && document.hidden) {
     try {
       new Notification(title, options);
+      console.log('[Notifications] Notification shown via regular API');
     } catch (error) {
       console.error('[Notifications] Failed to show notification:', error);
     }
+  } else {
+    console.log('[Notifications] Skipping notification - permission:', permission, 'hidden:', document.hidden);
   }
 };
 
@@ -110,14 +159,29 @@ export const showNotification = async (
 export const areNotificationsAvailable = (): boolean => {
   if (typeof window === 'undefined') return false;
   
-  if (!('Notification' in window)) return false;
-  
-  // On iOS, require standalone mode
-  if (isIOS()) {
-    return isStandalone() && 'serviceWorker' in navigator;
+  if (!('Notification' in window)) {
+    console.log('[Notifications] Notification API not available');
+    return false;
   }
   
-  return true;
+  const permission = Notification.permission;
+  
+  // On iOS, require standalone mode and granted permission
+  if (isIOS()) {
+    const available = isStandalone() && 'serviceWorker' in navigator && permission === 'granted';
+    console.log('[Notifications] iOS availability check:', {
+      standalone: isStandalone(),
+      hasSW: 'serviceWorker' in navigator,
+      permission,
+      available
+    });
+    return available;
+  }
+  
+  // For other platforms, just check permission
+  const available = permission === 'granted';
+  console.log('[Notifications] Non-iOS availability check:', { permission, available });
+  return available;
 };
 
 // Get notification permission status
