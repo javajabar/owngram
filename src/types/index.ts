@@ -41,6 +41,7 @@ export interface Chat {
   otherUser?: Profile
   unreadCount?: number
   id: string
+  short_id?: number | null
   type: 'dm' | 'group'
   name: string | null
   avatar_url: string | null

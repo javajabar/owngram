@@ -53,3 +53,5 @@ ALTER TABLE chat_members ADD COLUMN IF NOT EXISTS role TEXT DEFAULT 'member' CHE
 -- В реальной системе это нужно делать при создании чата.
 -- Пока просто дадим права всем текущим.
 
+
+

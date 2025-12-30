@@ -18,7 +18,9 @@ export default function ChatIdPage() {
     checkUser()
   }, [checkUser])
 
-  // Check if user has access to this chat
+  const [resolvedChatId, setResolvedChatId] = useState<string | null>(null)
+
+  // Check if user has access to this chat and resolve chat ID
   useEffect(() => {
     if (!user || !params?.id) {
       if (!loading && !user) {
@@ -29,11 +31,51 @@ export default function ChatIdPage() {
 
     const checkAccess = async () => {
       try {
+        // First, find the chat by short_id (from URL)
+        const shortId = parseInt(params.id as string, 10)
+        let chatId: string | null = null
+
+        if (isNaN(shortId)) {
+          // If not a number, try to find by UUID (for backward compatibility)
+          const { data: chatByUuid } = await supabase
+            .from('chats')
+            .select('id')
+            .eq('id', params.id as string)
+            .maybeSingle()
+          
+          if (!chatByUuid) {
+            router.push('/chat')
+            return
+          }
+          
+          chatId = chatByUuid.id
+        } else {
+          // Find chat by short_id
+          const { data: chatData, error: chatError } = await supabase
+            .from('chats')
+            .select('id')
+            .eq('short_id', shortId)
+            .maybeSingle()
+
+          if (chatError || !chatData) {
+            console.error('Error finding chat by short_id:', chatError)
+            router.push('/chat')
+            return
+          }
+
+          chatId = chatData.id
+        }
+
+        if (!chatId) {
+          router.push('/chat')
+          return
+        }
+
         // Check if user is a member of this chat and get their role
         const { data, error } = await supabase
           .from('chat_members')
           .select('chat_id, role')
-          .eq('chat_id', params.id as string)
+          .eq('chat_id', chatId)
           .eq('user_id', user.id)
           .maybeSingle()
 
@@ -50,6 +92,7 @@ export default function ChatIdPage() {
         }
 
         setUserRole(data.role as any || 'member')
+        setResolvedChatId(chatId)
         setHasAccess(true)
       } catch (error) {
         console.error('Error checking chat access:', error)
@@ -66,11 +109,11 @@ export default function ChatIdPage() {
     return null // Silent loading
   }
 
-  if (!hasAccess || !params?.id) {
+  if (!hasAccess || !resolvedChatId) {
     return null
   }
 
-  return <ChatWindow chatId={params.id as string} userRole={userRole} />
+  return <ChatWindow chatId={resolvedChatId} userRole={userRole} />
 }
 
 

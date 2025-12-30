@@ -706,7 +706,7 @@ export function Sidebar() {
         chatIds = data.map(m => m.chat_id)
         setUserChatIds(chatIds)
       }
-      const { data: messages, error } = await supabase.from('messages').select('*, sender:profiles!sender_id(*), chats(id, name, type)').in('chat_id', chatIds).ilike('content', `%${query}%`).order('created_at', { ascending: false }).limit(50)
+      const { data: messages, error } = await supabase.from('messages').select('*, sender:profiles!sender_id(*), chats(id, short_id, name, type)').in('chat_id', chatIds).ilike('content', `%${query}%`).order('created_at', { ascending: false }).limit(50)
       if (error) throw error
       const results = (messages || []).map((msg: any) => ({ message: msg, chat: msg.chats, sender: msg.sender }))
       setGlobalSearchResults(results)
@@ -724,17 +724,20 @@ export function Sidebar() {
         const { data: myChatMembers } = await supabase.from('chat_members').select('chat_id').eq('user_id', user.id)
         if (myChatMembers && myChatMembers.length > 0) {
             const myChatIds = myChatMembers.map(m => m.chat_id)
-            const { data: commonChats } = await supabase.from('chat_members').select('chat_id, chats!inner(type)').eq('user_id', otherUserId).in('chat_id', myChatIds).eq('chats.type', 'dm').limit(1)
+            const { data: commonChats } = await supabase.from('chat_members').select('chat_id, chats!inner(id, short_id, type)').eq('user_id', otherUserId).in('chat_id', myChatIds).eq('chats.type', 'dm').limit(1)
             if (commonChats && commonChats.length > 0) {
-                router.push(`/chat/${commonChats[0].chat_id}`)
+                const commonChat = commonChats[0]
+                const chatUrl = (commonChat.chats as any)?.short_id ? `/chat/${(commonChat.chats as any).short_id}` : `/chat/${commonChat.chat_id}`
+                router.push(chatUrl)
                 setSearchQuery(''); setUsers([]); return
             }
         }
-        const { data: chatData, error: chatError } = await supabase.from('chats').insert({ type: 'dm' }).select().single()
+        const { data: chatData, error: chatError } = await supabase.from('chats').insert({ type: 'dm' }).select('id, short_id').single()
         if (chatError) throw chatError
         if (!chatData) return
         await supabase.from('chat_members').insert([{ chat_id: chatData.id, user_id: user.id }, { chat_id: chatData.id, user_id: otherUserId }])
-        router.push(`/chat/${chatData.id}`); setSearchQuery(''); setUsers([])
+        const chatUrl = chatData.short_id ? `/chat/${chatData.short_id}` : `/chat/${chatData.id}`
+        router.push(chatUrl); setSearchQuery(''); setUsers([])
         fetchChats(false)
       } catch (e) {
           console.error('Error creating chat:', e); alert('Ошибка при создании чата')
@@ -815,7 +818,7 @@ export function Sidebar() {
           type: 'group', 
           name: groupName.trim()
         })
-        .select()
+        .select('id, short_id')
         .single()
 
       if (chatError) throw chatError
@@ -834,7 +837,8 @@ export function Sidebar() {
       setShowCreateGroup(false); 
       setGroupName(''); 
       setSelectedUsers([]); 
-      router.push(`/chat/${chatData.id}`)
+      const chatUrl = chatData.short_id ? `/chat/${chatData.short_id}` : `/chat/${chatData.id}`
+      router.push(chatUrl)
     } catch (error: any) {
       console.error('Error creating group:', error); 
       alert(`Ошибка при создании группы: ${error.message || 'Неизвестная ошибка'}`)
@@ -904,8 +908,10 @@ export function Sidebar() {
                     <div className="text-center py-4 text-gray-400 text-sm">Поиск...</div>
                 ) : globalSearchResults.length > 0 ? (
                     <div className="space-y-2">
-                        {globalSearchResults.map((result, idx) => (
-                            <div key={idx} onClick={() => { router.push(`/chat/${result.chat.id}`); setShowGlobalSearch(false); setSearchQuery('') }} className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer transition-all duration-300 ease-in-out flex items-start gap-3 hover:scale-[1.02] active:scale-95">
+                        {globalSearchResults.map((result, idx) => {
+                            const chatUrl = result.chat.short_id ? `/chat/${result.chat.short_id}` : `/chat/${result.chat.id}`
+                            return (
+                            <div key={idx} onClick={() => { router.push(chatUrl); setShowGlobalSearch(false); setSearchQuery('') }} className="p-3 hover:bg-[#242F3D] dark:hover:bg-[#242F3D] rounded-lg cursor-pointer transition-all duration-300 ease-in-out flex items-start gap-3 hover:scale-[1.02] active:scale-95">
                                 <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 overflow-hidden bg-gray-200 dark:bg-gray-700">
                                     {result.sender?.avatar_url ? <img src={result.sender.avatar_url} className="w-full h-full object-cover" alt="U" /> : <span className="text-gray-600 dark:text-gray-300 font-semibold text-sm">{(result.sender?.username?.[0] || 'U').toUpperCase()}</span>}
                                 </div>
@@ -988,7 +994,8 @@ export function Sidebar() {
                                         e.stopPropagation()
                                         return
                                       }
-                                      router.push(`/chat/${chat.id}`)
+                                      const chatUrl = chat.short_id ? `/chat/${chat.short_id}` : `/chat/${chat.id}`
+                                      router.push(chatUrl)
                                     }} 
                                     className="flex items-center gap-3 flex-1 min-w-0"
                                 >

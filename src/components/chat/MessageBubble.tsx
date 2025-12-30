@@ -9,6 +9,7 @@ import { Play, Pause, Check, CheckCheck, MoreVertical, Edit, Trash2, Reply, X, P
 import { useState, useRef, useEffect } from 'react'
 import { profileCache } from '@/lib/cache'
 import { REACTIONS_LIST } from '@/lib/constants'
+import { DocumentPreview } from '@/components/DocumentPreview'
 
 const ReactorAvatar = ({ userId }: { userId: string }) => {
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null)
@@ -595,38 +596,68 @@ export function MessageBubble({
                       </div>
                   )}
               </div>
-          ) : message.attachments?.some((a: any) => a.type === 'file') ? (
+          ) : message.attachments?.some((a: any) => a.type === 'file' || a.type === 'document') ? (
               <div className="space-y-2">
-                  {message.attachments.filter((a: any) => a.type === 'file').map((attachment: any, idx: number) => (
-                      <a
-                          key={idx}
-                          href={attachment.url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={cn(
-                              "flex items-center gap-3 p-3 rounded-lg border transition-all duration-300 ease-in-out hover:scale-[1.02]",
-                              isMe 
-                                  ? "bg-white/10 border-white/20 hover:bg-white/20 text-white" 
-                                  : "bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
-                          )}
-                      >
-                          <div className={cn(
-                              "w-10 h-10 rounded-lg flex items-center justify-center shrink-0",
-                              isMe ? "bg-white/20" : "bg-blue-100 dark:bg-blue-900/30"
-                          )}>
-                              <Paperclip className={cn("w-5 h-5", isMe ? "text-white" : "text-blue-600 dark:text-blue-400")} />
-                          </div>
-                          <div className="flex-1 min-w-0">
-                              <div className="font-[15px] truncate">{attachment.name || 'Файл'}</div>
-                              {attachment.size && (
-                                  <div className="text-xs opacity-70">
-                                      {(attachment.size / 1024).toFixed(1)} KB
-                                  </div>
+                  {message.attachments.filter((a: any) => a.type === 'file' || a.type === 'document').map((attachment: any, idx: number) => {
+                      const isDocument = attachment.type === 'document' || 
+                                        attachment.name?.endsWith('.docx') || 
+                                        attachment.name?.endsWith('.doc') ||
+                                        attachment.name?.endsWith('.pptx') ||
+                                        attachment.name?.endsWith('.ppt') ||
+                                        attachment.name?.endsWith('.pdf') ||
+                                        attachment.mimeType?.includes('document') ||
+                                        attachment.mimeType?.includes('presentation') ||
+                                        attachment.mimeType === 'application/pdf'
+                      
+                      if (isDocument) {
+                          // Use DocumentPreview for documents
+                          return (
+                              <div key={idx}>
+                                  <DocumentPreview
+                                      url={attachment.url}
+                                      fileName={attachment.name || 'Документ'}
+                                      mimeType={attachment.mimeType}
+                                      isMe={isMe}
+                                  />
+                              </div>
+                          )
+                      }
+                      
+                      // Regular file attachment
+                      return (
+                          <a
+                              key={idx}
+                              href={attachment.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={cn(
+                                  "flex items-center gap-3 p-3 rounded-lg border transition-all duration-300 ease-in-out hover:scale-[1.02]",
+                                  isMe 
+                                      ? "bg-white/10 border-white/20 hover:bg-white/20 text-white" 
+                                      : "bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-900 dark:text-white"
                               )}
-                          </div>
-                      </a>
-                  ))}
-                  {message.content && message.content !== `📎 ${message.attachments[0]?.name}` && (
+                          >
+                              <div className={cn(
+                                  "w-10 h-10 rounded-lg flex items-center justify-center shrink-0",
+                                  isMe ? "bg-white/20" : "bg-blue-100 dark:bg-blue-900/30"
+                              )}>
+                                  <Paperclip className={cn("w-5 h-5", isMe ? "text-white" : "text-blue-600 dark:text-blue-400")} />
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                  <div className="font-[15px] truncate">{attachment.name || 'Файл'}</div>
+                                  {attachment.size && (
+                                      <div className="text-xs opacity-70">
+                                          {attachment.size < 1024 * 1024 
+                                            ? `${(attachment.size / 1024).toFixed(1)} KB`
+                                            : `${(attachment.size / 1024 / 1024).toFixed(2)} MB`
+                                          }
+                                      </div>
+                                  )}
+                              </div>
+                          </a>
+                      )
+                  })}
+                  {message.content && message.content !== `📎 ${message.attachments[0]?.name}` && message.content !== `📄 ${message.attachments[0]?.name}` && (
                       <div className="text-[15px] break-words whitespace-pre-wrap font-object-sans">
                           {message.content}
                       </div>

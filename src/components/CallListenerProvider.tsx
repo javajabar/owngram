@@ -79,8 +79,16 @@ export default function CallListenerProvider({ children }: { children: React.Rea
               // Store incoming call in global state (works even if ChatWindow not loaded yet)
               setIncomingCall(signal.chat_id, signal.from_user_id)
               
+              // Get short_id for URL
+              const { data: chatWithShortId } = await supabase
+                .from('chats')
+                .select('id, short_id')
+                .eq('id', signal.chat_id)
+                .maybeSingle()
+              
+              const chatUrl = chatWithShortId?.short_id ? `/chat/${chatWithShortId.short_id}` : `/chat/${signal.chat_id}`
               // Redirect to the chat
-              router.push(`/chat/${signal.chat_id}`)
+              router.push(chatUrl)
               
               // Also dispatch custom event for immediate handling if ChatWindow is already loaded
               setTimeout(() => {

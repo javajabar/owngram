@@ -30,7 +30,7 @@ export default function JoinGroupPage() {
                 // 1. Fetch group info by token
                 const { data: chat, error: fetchError } = await supabase
                     .from('chats')
-                    .select('id, name, avatar_url')
+                    .select('id, short_id, name, avatar_url')
                     .eq('invite_token', params.token as string)
                     .single()
 
@@ -52,7 +52,8 @@ export default function JoinGroupPage() {
 
                 if (membership) {
                     setStatus('already_member')
-                    setTimeout(() => router.push(`/chat/${chat.id}`), 2000)
+                    const chatUrl = chat.short_id ? `/chat/${chat.short_id}` : `/chat/${chat.id}`
+                    setTimeout(() => router.push(chatUrl), 2000)
                     return
                 }
 
@@ -64,8 +65,16 @@ export default function JoinGroupPage() {
                     throw joinError || new Error('Failed to join')
                 }
 
+                // Fetch chat to get short_id
+                const { data: joinedChat } = await supabase
+                    .from('chats')
+                    .select('id, short_id')
+                    .eq('id', chatId)
+                    .maybeSingle()
+
+                const chatUrl = joinedChat?.short_id ? `/chat/${joinedChat.short_id}` : `/chat/${chatId}`
                 setStatus('success')
-                setTimeout(() => router.push(`/chat/${chatId}`), 2000)
+                setTimeout(() => router.push(chatUrl), 2000)
             } catch (err: any) {
                 console.error('Join error:', err)
                 setStatus('error')
@@ -127,4 +136,6 @@ export default function JoinGroupPage() {
         </div>
     )
 }
+
+
 

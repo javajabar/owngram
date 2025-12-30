@@ -543,7 +543,7 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
       const myChatIds = myChatMembers.map(m => m.chat_id)
       const { data: commonChats } = await supabase
         .from('chat_members')
-        .select('chat_id, chats!inner(type)')
+        .select('chat_id, chats!inner(id, short_id, type)')
         .eq('user_id', userId)
         .in('chat_id', myChatIds)
         .eq('chats.type', 'dm')
@@ -551,7 +551,9 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
       
       if (commonChats && commonChats.length > 0) {
         setShowProfile(false)
-        router.push(`/chat/${commonChats[0].chat_id}`)
+        const commonChat = commonChats[0]
+        const chatUrl = (commonChat.chats as any)?.short_id ? `/chat/${(commonChat.chats as any).short_id}` : `/chat/${commonChat.chat_id}`
+        router.push(chatUrl)
         return
       }
     }
@@ -561,7 +563,7 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
       const { data: chatData, error: chatError } = await supabase
         .from('chats')
         .insert({ type: 'dm' })
-        .select()
+        .select('id, short_id')
         .single()
       
       if (chatError) throw chatError
@@ -573,7 +575,8 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
       ])
       
       setShowProfile(false)
-      router.push(`/chat/${chatData.id}`)
+      const chatUrl = chatData.short_id ? `/chat/${chatData.short_id}` : `/chat/${chatData.id}`
+      router.push(chatUrl)
     } catch (err) {
       console.error('Error creating chat for navigation:', err)
     }
@@ -1587,23 +1590,60 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
     
     try {
       for (const file of Array.from(files)) {
+        // Check file size (max 50MB)
+        const maxSize = 50 * 1024 * 1024 // 50MB
+        if (file.size > maxSize) {
+          alert(`Файл "${file.name}" слишком большой. Максимальный размер: 50 МБ`)
+          continue
+        }
+
         const isImage = file.type.startsWith('image/')
-        const fileType = isImage ? 'image' : 'file'
+        const isDocument = file.type.includes('document') || 
+                          file.name.endsWith('.docx') || 
+                          file.name.endsWith('.doc') ||
+                          file.name.endsWith('.pptx') ||
+                          file.name.endsWith('.ppt') ||
+                          file.name.endsWith('.xlsx') ||
+                          file.name.endsWith('.xls') ||
+                          file.name.endsWith('.pdf')
+        
+        const fileType = isImage ? 'image' : (isDocument ? 'document' : 'file')
         
         // Compress if image
         const fileToUpload = isImage ? await compressImage(file) : file
         
-        const fileName = `${Date.now()}-${file.name}`
+        const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
         const filePath = `${chatId}/${fileName}`
         
-        // Upload file
-        const { error: uploadError } = await supabase.storage
-          .from('chat-attachments')
-          .upload(filePath, fileToUpload, { 
-            contentType: isImage ? 'image/jpeg' : file.type 
-          })
+        // Upload file with retry logic
+        let uploadError = null
+        let retries = 3
+        while (retries > 0) {
+          const { error } = await supabase.storage
+            .from('chat-attachments')
+            .upload(filePath, fileToUpload, { 
+              contentType: isImage ? 'image/jpeg' : file.type,
+              upsert: true
+            })
+          
+          if (!error) {
+            uploadError = null
+            break
+          }
+          
+          uploadError = error
+          retries--
+          if (retries > 0) {
+            await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second before retry
+          }
+        }
         
-        if (uploadError) throw uploadError
+        if (uploadError) {
+          console.error('Upload error after retries:', uploadError)
+          const errorMessage = uploadError.message || 'Неизвестная ошибка'
+          alert(`Ошибка при загрузке файла "${file.name}": ${errorMessage}`)
+          continue
+        }
         
         // Get public URL
         const { data: { publicUrl } } = supabase.storage
@@ -1611,10 +1651,10 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
           .getPublicUrl(filePath)
         
         // Create message with attachment
-        await supabase.from('messages').insert({
+        const { error: insertError } = await supabase.from('messages').insert({
           chat_id: chatId,
           sender_id: user.id,
-          content: isImage ? '📷 Фото' : `📎 ${file.name}`,
+          content: isImage ? '📷 Фото' : (isDocument ? `📄 ${file.name}` : `📎 ${file.name}`),
           attachments: [{ 
             type: fileType, 
             url: publicUrl,
@@ -1624,10 +1664,16 @@ export function ChatWindow({ chatId, userRole = 'member' }: { chatId: string, us
           }],
           delivered_at: new Date().toISOString()
         })
+
+        if (insertError) {
+          console.error('Error inserting message:', insertError)
+          alert(`Ошибка при создании сообщения для файла "${file.name}"`)
+        }
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error uploading file:', error)
-      alert('Ошибка при загрузке файла')
+      const errorMessage = error?.message || 'Неизвестная ошибка'
+      alert(`Ошибка при загрузке файла: ${errorMessage}`)
     } finally {
       setIsUploading(false)
     }
